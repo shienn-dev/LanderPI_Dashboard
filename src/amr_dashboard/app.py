@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import errno
 import random
+import time
 
 from nicegui import app, context, ui
 
@@ -137,6 +138,12 @@ def _render_structure(
     _release_current_session_motion()
     structure.clear()
     with structure:
+        # The chassis controls come first: they are the thing the operator
+        # reaches for, and they used to sit below the monitor, mission, LiDAR
+        # and robot panels -- below the fold on a laptop screen, so driving the
+        # robot meant scrolling first. Built once and never refreshed, like all
+        # the interactive panels below.
+        chassis_panel.chassis_control_panel(robot_runtime.get_adapters())
         with ui.row().classes("w-full gap-4 items-stretch"):
             monitor()
             if state.mode == "competition":
@@ -151,7 +158,6 @@ def _render_structure(
         # release event, and an input field that is rebuilt every tick would
         # eat what the operator is typing. They also cost the event loop the
         # time the motor stream needs.
-        chassis_panel.chassis_control_panel(robot_runtime.get_adapters())
         robot_panel.arm_control_panel(robot_runtime.get_adapters())
         _render_vision_panel()
         mission_log()
@@ -199,11 +205,13 @@ def _on_tick(
 def layout_signature(state: DashboardState) -> tuple[str, ...]:
     """Structural facts that require a full layout rebuild when they change.
 
-    Kept deliberately small and deterministic: currently only the active mode
-    (Competition vs Development) changes which panel is shown. All other
-    updates are applied in place by refreshing the read-only regions.
+    Kept deliberately small and deterministic: currently the active mode
+    (Competition vs Development) and the chassis live/offline state change
+    which panels are shown. All other updates are applied in place by
+    refreshing the read-only regions.
     """
-    return (state.mode,)
+    adapters = robot_runtime.get_adapters()
+    return (state.mode, "live" if adapters.live else "offline")
 
 
 def _build_header(state: DashboardState) -> None:
@@ -560,6 +568,40 @@ def _start_runtime_loop() -> None:
     start_server_loop()
 
 
+#: Wall time of the previous top-level watchdog tick. Used to measure how late
+#: this process' event loop is (see ``_watch_loop``).
+_loop_watch = {"last": 0.0}
+
+
+def _watch_loop() -> None:
+    """Measure this process' own event-loop lateness, once per 50 ms.
+
+    This is the measurement for fault A4/F8: a hold that dies with "heartbeat
+    lost" while the operator is still holding. Either the browser really went
+    quiet (a dropped Wi-Fi, a sleeping laptop -- the guard must stop the robot)
+    or *this process* was too busy to process the heartbeats that did arrive
+    (nothing wrong with the client). The two are indistinguishable from inside
+    the guard, so the delay is measured here, at the top level, and handed to
+    the guard through ``robot_runtime.record_loop_delay``.
+
+    It is deliberately independent of the panels: it runs whether or not any
+    page is open, and it must stay cheap.
+    """
+    now = time.monotonic()
+    robot_runtime.note_loop_tick()
+    if _loop_watch["last"]:
+        gap = now - _loop_watch["last"]
+        expected = robot_runtime.LOOP_WATCH_INTERVAL_S
+        if gap > expected:
+            robot_runtime.record_loop_delay(gap - expected)
+    _loop_watch["last"] = now
+
+
+def _start_loop_watch() -> None:
+    """Install the top-level loop watchdog (one timer per process, not per page)."""
+    app.timer(robot_runtime.LOOP_WATCH_INTERVAL_S, _watch_loop)
+
+
 def _stop_runtime_loop() -> None:
     """Cancel the server-side loop on application shutdown."""
     stop_server_loop()
@@ -598,6 +640,7 @@ def _stop_chassis() -> None:
 
 
 app.on_startup(_start_runtime_loop)
+app.on_startup(_start_loop_watch)
 app.on_startup(_start_lidar)
 app.on_shutdown(_stop_lidar)
 app.on_shutdown(_stop_chassis)
@@ -619,12 +662,17 @@ def run(
     reader itself is started/stopped by the app lifecycle hooks above. Importing
     this module never opens a serial port.
 
-    ``chassis_live`` is the only switch that lets the dashboard drive the real
-    robot. It is off by default, and it prints a loud warning because a
-    mistake here moves a real machine.
+    ``chassis_live`` is the switch that lets the dashboard drive the real robot
+    from start-up. It is off by default, and it prints a loud warning because a
+    mistake here moves a real machine. Without it the dashboard starts OFFLINE,
+    and the panel then offers an explicit button that opens the port on request
+    (``robot_runtime.activate_live_chassis``) instead of forcing a restart.
     """
     if lidar_config is not None:
         lidar_runtime.configure(lidar_config)
+    # Remember the port even when the server starts offline: the panel's ONLINE
+    # button opens that port on request and has no command line of its own.
+    robot_runtime.set_default_port(chassis_port or "")
     if chassis_live:
         robot_runtime.configure(live=True, port=chassis_port or "")
         state = robot_runtime.open_live_chassis()

@@ -112,6 +112,10 @@ from dataclasses import dataclass
 TRACK_WIDTH_M = 0.145
 WHEELBASE_M = 0.135
 
+#: Half the wheel-to-wheel diagonal, (L + H) / 2. This is the lever arm that
+#: turns a yaw rate into a wheel rate, and back.
+HALF_DIAGONAL_M = (TRACK_WIDTH_M + WHEELBASE_M) / 2.0
+
 # Distance travelled per wheel revolution (sesi 3 §6): 20,72 +/- 1,84 cm.
 C_EFF_M = 0.2072
 C_EFF_SD_M = 0.0184
@@ -130,8 +134,8 @@ STALL_THRESHOLD_RPS = 0.3
 PROJECTION_FACTOR = math.cos(math.radians(45.0))
 
 # The highest motor rate ever commanded on this robot: u = 1,0 rps, which
-# measured 0,19 m/s on the floor (sesi 3 section 7). The dashboard never
-# commands more than this, whatever the body command asks for.
+# measured 0,19 m/s on the floor (sesi 3 section 7). The lateral and yaw axes
+# never exceed this, whatever the body command asks for.
 #
 # The cap matters because the *component* limits in safety.py do not bound the
 # combined motion: a diagonal command (vx = vy = 0,19) needs 2,07 rps on two
@@ -139,6 +143,26 @@ PROJECTION_FACTOR = math.cos(math.radians(45.0))
 # speed. Scaling the whole command down keeps every wheel inside the range
 # that was actually measured.
 MAX_TESTED_RPS = 1.0
+
+#: Longitudinal-only wheel-rate cap, higher than the measured envelope.
+#:
+#: Forward/backward is the one motion on this robot whose sign convention has
+#: been verified on the floor. It was reported as too slow twice at full slider,
+#: and it is not a bug: at 1,0 rps the m/s mapping gives forward and strafe the
+#: *same* wheel rate, so 0,19 m/s capped every axis. Lateral and yaw are left at
+#: ``MAX_TESTED_RPS`` because those were reported as correct.
+#:
+#: 1,80 rps = ~0,33 m/s on the floor (wheel surface 0,373 m/s, ~108 rpm at the
+#: wheel). The first step was 1,30; the operator still wanted more, so this is
+#: the second. To retune, change this one number and keep ``max_linear_x`` in
+#: ``robot_runtime.LIVE_LIMITS`` at or above ``speed_for_rate(MAX_FORWARD_RPS)``
+#: or the clamp will quietly undo it.
+#:
+#: UNVERIFIED above 1,0 rps: no floor measurement exists. If the robot pulls to
+#: one side, the wheels scrub, or the battery sags, lower it -- and check with
+#: the ruler that the wheels actually reach the commanded rate, because a
+#: torque-limited motor will draw more current without going faster.
+MAX_FORWARD_RPS = 1.80
 
 # Motor ids in the order the kinematic model uses them.
 MOTOR_FIELDS: tuple[str, ...] = ("front_left", "rear_left", "front_right", "rear_right")
@@ -228,6 +252,90 @@ def command_for_speed(speed_mps: float, *, c_eff_m: float = C_EFF_M,
     if efficiency <= 0.0:
         raise ValueError("efficiency must be positive")
     return speed_mps / (efficiency * c_eff_m)
+
+
+def speed_for_rate(
+    rate_rps: float,
+    *,
+    c_eff_m: float = C_EFF_M,
+    efficiency: float = EFFICIENCY,
+) -> float:
+    """Inverse of :func:`command_for_speed`: the floor speed a rate should give."""
+    return rate_rps * efficiency * c_eff_m
+
+
+def rate_cap_for(
+    linear_x: float,
+    linear_y: float,
+    angular_z: float,
+) -> float:
+    """Wheel-rate cap that applies to one body command.
+
+    Only a purely longitudinal command may use the higher forward cap. Anything
+    with a lateral or yaw component stays inside the measured 1,0 rps envelope,
+    because those two axes are still derived from the roller arrangement rather
+    than verified on the floor.
+    """
+    if linear_x != 0.0 and linear_y == 0.0 and angular_z == 0.0:
+        return MAX_FORWARD_RPS
+    return MAX_TESTED_RPS
+
+
+def drive_command(
+    linear_x: float,
+    linear_y: float,
+    angular_z: float,
+    *,
+    model: MecanumModel = DEFAULT_MODEL,
+    c_eff_m: float = C_EFF_M,
+    efficiency: float = EFFICIENCY,
+) -> list[tuple[int, float]]:
+    """:func:`command_for_body_velocity` with the per-axis rate cap applied.
+
+    This is the one function that turns a body command into wire values. The
+    chassis adapter and the dashboard's status bar both call it, so the number
+    the operator reads cannot drift from the number the wheels are told -- that
+    drift is what once made a stalled robot look like a moving one.
+    """
+    return command_for_body_velocity(
+        linear_x,
+        linear_y,
+        angular_z,
+        model=model,
+        c_eff_m=c_eff_m,
+        efficiency=efficiency,
+        max_rate_rps=rate_cap_for(linear_x, linear_y, angular_z),
+    )
+
+
+def yaw_rate_for_wheel_rate(
+    rate_rps: float,
+    *,
+    c_eff_m: float = C_EFF_M,
+    efficiency: float = EFFICIENCY,
+) -> float:
+    """Return the yaw rate (rad/s) that drives every wheel at ``rate_rps``.
+
+    The dashboard has one speed slider for all six directions. For the
+    translational axes the number means metres per second, which is what the
+    operator expects. Using that same number as rad/s for the yaw axis asks for
+    a wheel rate about 7x below the stall threshold -- turning would buzz and
+    never move. Converting keeps the slider meaning "how hard the wheels are
+    driven" on every axis.
+
+    Derived from the yaw term in :func:`wheel_speeds`: a pure yaw rate ``w``
+    turns every wheel at ``w * HALF_DIAGONAL_M / c_eff_m`` revolutions per
+    second, and :func:`motor_commands` divides the body velocity by
+    ``efficiency`` before distributing it, so the inverse is
+    ``w = rate_rps * c_eff_m * efficiency / HALF_DIAGONAL_M``.
+    """
+    if HALF_DIAGONAL_M <= 0.0:
+        raise ValueError("geometry must be positive")
+    if c_eff_m <= 0.0:
+        raise ValueError("c_eff_m must be positive")
+    if efficiency <= 0.0:
+        raise ValueError("efficiency must be positive")
+    return rate_rps * c_eff_m * efficiency / HALF_DIAGONAL_M
 
 
 def is_above_stall_threshold(

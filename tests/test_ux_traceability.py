@@ -155,7 +155,7 @@ def test_layout_signature_is_stable_for_same_mode() -> None:
     assert dash.layout_signature(state) == dash.layout_signature(state)
 
 
-def test_layout_signature_changes_only_with_mode() -> None:
+def test_layout_signature_changes_only_with_mode_or_live_state() -> None:
     state = dash.DashboardState()
     before = dash.layout_signature(state)
 
@@ -174,7 +174,10 @@ def test_layout_signature_is_hashable_and_small() -> None:
     sig = dash.layout_signature(dash.DashboardState())
     assert isinstance(sig, tuple)
     assert hash(sig) is not None  # usable for equality comparison
-    assert sig == ("competition",)
+    # Two entries: the mode, and the chassis live/offline state. The second one
+    # is what makes the panel rebuild itself after the ONLINE button opens the
+    # port -- see tests/test_dashboard_chassis_online.py.
+    assert sig == ("competition", "offline")
 
 
 # --------------------------------------------------------------------------- #

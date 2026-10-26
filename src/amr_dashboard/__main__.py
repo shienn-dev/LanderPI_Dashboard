@@ -36,16 +36,19 @@ def main() -> None:
         help="do not open the LiDAR serial port",
     )
 
-    # Live chassis options. WITHOUT --chassis-live the dashboard keeps the
+    # Live chassis options. WITHOUT --chassis-live the dashboard starts with the
     # offline adapter: commands are validated and clamped but never sent, and
-    # the robot cannot move. --chassis-live is the single switch that turns
-    # the dashboard into something that actually drives the robot, so it is
-    # never implied by the port name or by an environment variable.
+    # the robot cannot move. That is the safe default, and the chassis panel
+    # then shows OFFLINE with a disabled pad plus a button that opens the port
+    # on request, so this flag is no longer the only way to reach the robot.
     chassis = parser.add_argument_group("Chassis")
     chassis.add_argument(
         "--chassis-port",
         default=DEFAULT_CHASSIS_PORT,
-        help=f"serial port of the STM32 chassis (default {DEFAULT_CHASSIS_PORT})",
+        help=(
+            f"serial port of the STM32 chassis (default {DEFAULT_CHASSIS_PORT}); "
+            "also the port the panel's ONLINE button opens"
+        ),
     )
     chassis.add_argument(
         "--chassis-live",

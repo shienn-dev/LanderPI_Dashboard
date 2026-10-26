@@ -13,6 +13,12 @@ there:
   :class:`~amr_core.robot.motion_guard.MotionGuard` decides *what* to send.
 * **It always sends a stop frame.** On ``stop()``, on close and in a
   ``finally`` block, so the robot is never left with a live command.
+* **It reads the board's own telemetry on the same handle.** The board streams
+  IMU frames (func 7) continuously; a second handle on the same device would
+  stall it for another 2,36 s and split the stream between two readers, so the
+  one handle is drained in the stream thread and the decoded readings are handed
+  to an optional ``imu_listener``. Without a listener the read path stays off and
+  the timing of the motor stream is exactly what it was.
 * **It reports its state honestly.** ``CONNECTED`` only while the port is
   really open and the stream thread is alive.
 * **It never exceeds the tested envelope.** The body command is clamped by
@@ -47,11 +53,17 @@ from amr_core.robot.interfaces import ChassisCommand, CommandOutcome, Connection
 from amr_core.robot.kinematics import (
     DEFAULT_MODEL,
     MecanumModel,
-    command_for_body_velocity,
+    drive_command,
 )
 from amr_core.robot.motion_guard import MotionGuard
 from amr_core.robot.safety import SpeedLimits, validate_chassis_command
-from amr_core.robot.stm32_protocol import build_motor_frame
+from amr_core.robot.stm32_protocol import (
+    FrameDecoder,
+    ImuReading,
+    Stm32Function,
+    build_motor_frame,
+    decode_imu,
+)
 
 DEFAULT_PORT = "/dev/ttyACM0"
 DEFAULT_BAUD = 1_000_000
@@ -110,6 +122,7 @@ class SerialChassisAdapter:
         guard: MotionGuard | None = None,
         model: MecanumModel = DEFAULT_MODEL,
         port_factory: Callable[[str, int], SerialPort] | None = None,
+        imu_listener: Callable[[ImuReading], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.port = port
@@ -120,6 +133,9 @@ class SerialChassisAdapter:
         self.guard = guard if guard is not None else MotionGuard()
         self.model = model
         self._port_factory = port_factory
+        self._imu_listener = imu_listener
+        self._imu_decoder = FrameDecoder()
+        self._imu_frames = 0
         self._clock = clock
         self._port: SerialPort | None = None
         self._thread: threading.Thread | None = None
@@ -250,13 +266,59 @@ class SerialChassisAdapter:
         # safety limits would refuse, and the limits are the last word.
         clamped, _ = validate_chassis_command(command, self.limits)
         effective = clamped if clamped is not None else ChassisCommand()
-        pairs = command_for_body_velocity(
+        pairs = drive_command(
             effective.linear_x,
             effective.linear_y,
             effective.angular_z,
             model=self.model,
         )
         return build_motor_frame(pairs)
+
+    @property
+    def imu_frames(self) -> int:
+        """How many IMU frames have been decoded on this port."""
+        return self._imu_frames
+
+    def _drain_input(self) -> None:
+        """Forward the board's own telemetry (IMU frames) to the listener.
+
+        Non-blocking by construction: only bytes that are *already* waiting are
+        read, so this can never delay a motor frame. With no listener attached
+        the port is never read at all, which keeps the motor timing exactly what
+        it was before this existed.
+
+        A second handle on the same device is not an option: opening it stalls
+        the board for another 2,36 s and splits the stream between two readers,
+        so the board's telemetry has to be read on the handle that already owns
+        the port -- this one, in the stream thread.
+        """
+        listener = self._imu_listener
+        port = self._port
+        if listener is None or port is None:
+            return
+        waiting = getattr(port, "in_waiting", 0) or 0
+        if waiting <= 0:
+            return
+        reader = getattr(port, "read", None)
+        if reader is None:
+            # A port that cannot be read (some test fakes) simply has no
+            # telemetry; motor streaming must not care.
+            return
+        try:
+            data = reader(waiting)
+        except Exception as exc:  # noqa: BLE001 - report the real cause
+            self.stats.last_error = f"imu read failed: {type(exc).__name__}: {exc}"
+            return
+        if not data:
+            return
+        for frame in self._imu_decoder.feed(data):
+            if frame.function != Stm32Function.IMU:
+                continue
+            reading = decode_imu(frame.payload)
+            if reading is None:
+                continue
+            self._imu_frames += 1
+            listener(reading)
 
     def _write(self, frame: bytes) -> bool:
         port = self._port
@@ -302,6 +364,10 @@ class SerialChassisAdapter:
         next_send = self._clock() + self.settle_s
         stop_frames_left = 0
         while not self._closing.is_set():
+            # Drain the board's own telemetry first: it costs nothing when no
+            # listener is attached, and it must never delay a motor frame, so it
+            # only ever reads bytes that are already waiting.
+            self._drain_input()
             now = self._clock()
             if now < next_send:
                 time.sleep(min(next_send - now, period))
