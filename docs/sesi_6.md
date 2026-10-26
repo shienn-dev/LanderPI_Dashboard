@@ -663,6 +663,53 @@ perlu operator menekan RESET arah sebelum setiap run.
 
 ---
 
+### 12.11 Temuan terbuka: "objek yang seharusnya tidak ada" (belum ditutup)
+
+Kata operator: *"Kaya ada objek yang seharusnya ga disitu. bisa dibilang mirror
+tapi aneh"* — dan ditegaskan bahwa IMU-nya benar, LiDAR-nya yang janggal.
+
+`~/AMRTestLander/tools/lidar_phantom_probe.py` (12 s, sampling snapshot 100 ms)
+memisahkan tiga hal yang di satu plot terlihat identik: objek nyata (stabil di
+tiap sampel), titik basi (bucket yang berhenti disegarkan), dan hantu multipath
+(muncul-hilang, jarak berubah liar).
+
+Catatan metode: dashboard operator sedang jalan (PID 28725 memegang
+`/dev/ttyUSB0`), jadi stream terbagi dua pembaca. Setiap paket yang diterima
+probe tetap CRC-bersih (0 gagal) sehingga **jarak** per sektor tetap sahih, tapi
+metrik kehadiran versi pertama probe itu cacat (menghitung titik, bukan sampel,
+sehingga hasilnya >100 %) — sudah diperbaiki, dan angka kehadiran di bawah
+**tidak** dipakai.
+
+| Sektor | Median | Rentang | Tafsir |
+| --- | --- | --- | --- |
+| 120-250° | 20-33 mm | sempit (mis. 20-22 mm) | **stabil di setiap sampel** → benda mati yang menempel di robot (badan/bracket), bukan hantu |
+| 260-350° | 310-580 mm | sempit | dinding/objek tetap di 31-58 cm |
+| **10-70°** | 1,4-6,2 m | **0,9-7,4 m** | muncul-hilang / liar → di sinilah "objek yang tidak seharusnya ada" terlihat |
+| 0-10° | 1.360 mm | 956-2.148 mm | tidak stabil |
+| 100-110°, 250-260° | transisi | 23-6.548 mm | batas busur badan sendiri (campuran 20 mm dan ruangan jauh), bukan hantu |
+
+Grade: **TERUKUR** untuk distribusi jarak; penyebab: **HIPOTESIS**.
+
+Hipotesis utama: **pantulan spekular di dinding arena yang rata.** Berkas LiDAR
+menyapu dinding, memantul ke objek lain, lalu kembali dengan lintasan lebih
+panjang, sehingga muncul "bayangan cermin" di belakang dinding — persis kata
+operator, "bisa dibilang mirror tapi aneh". Ini artefak klasik LiDAR, bukan
+kerusakan sensor.
+
+Hipotesis kedua (dan ini bug tampilan, bukan artefak): konvensi sudut LiDAR bukan
+CCW seperti asumsi panel, sehingga seluruh plot ter-mirror. Fit dinding §12.10
+tidak bisa membedakannya: tegak lurus dinding tetap 1,0° walau seluruh peta
+dicerminkan.
+
+**Uji pemisah (30-60 detik, tanpa aktuasi, siapa pun bisa menjalankan):** taruh
+satu objek yang posisinya diketahui (botol) di sisi KIRI-DEPAN robot pada ~80 cm,
+lalu jalankan `lidar_scan_probe.py`. Kalau objek itu muncul sesuai posisinya,
+konvensi sudut benar dan yang janggal hanya bayangan multipath. Kalau ia muncul
+di sisi seberang, plot memang ter-mirror → konvensi harus dibalik di
+`lidar_panel`/reader, dan itu menjelaskan kenapa "IMU benar tapi LiDAR aneh".
+
+---
+
 ## Lampiran — cara menjalankan
 
 ```bash
