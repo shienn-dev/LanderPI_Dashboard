@@ -201,25 +201,32 @@ def _snapshot():
     return accumulator.snapshot()
 
 
-def test_the_plot_draws_the_front_arrow_at_the_measured_offset() -> None:
+def test_the_plot_draws_the_front_marker_at_the_measured_offset() -> None:
+    """The front is drawn upwards, tilted by the measured 1,0 deg mount offset."""
     svg = lidar_panel.render_scan_svg(
         _snapshot(), front_offset_deg=lidar_panel.LIDAR_FRONT_OFFSET_DEG
     )
     assert "DEPAN" in svg
-    # The marker points along the LiDAR's 0 deg (measured offset ~1 deg), i.e.
-    # along +x from the centre: the arrow tip is to the right of centre.
     assert lidar_panel.LIDAR_FRONT_OFFSET_DEG == pytest.approx(1.0)
-    tip = _marker_tip(svg)
-    assert tip[0] > 150 + 30  # right of centre by roughly the arrow length
-    assert abs(tip[1] - 150) < 12
+    # 90 - (90 - 1) = 1 deg clockwise: up, leaning into the measured offset.
+    assert _marker_rotation(svg) == pytest.approx(1.0)
+    label_x, label_y = _marker_label(svg)
+    assert label_y < 150 - 20      # the word sits above the centre
+    assert abs(label_x - 150) < 5  # ...and stays on the vertical axis
 
 
-def _marker_tip(svg: str) -> tuple[float, float]:
-    """First point of the DEPAN polygon, from the rendered SVG."""
-    polygon = svg.split('<polygon points="', 1)[1].split('"', 1)[0]
-    first = polygon.split(" ", 1)[0]
-    x, y = first.split(",")
-    return float(x), float(y)
+def _marker_rotation(svg: str) -> float:
+    """The chassis rectangle's clockwise rotation, in degrees."""
+    rect = svg.split('<rect x="', 1)[1].split("/>", 1)[0]
+    return float(rect.split("rotate(", 1)[1].split(" ", 1)[0].rstrip(")"))
+
+
+def _marker_label(svg: str) -> tuple[float, float]:
+    """The DEPAN label's (x, y) in the rendered SVG."""
+    text = svg.split(">DEPAN</text>", 1)[0].rsplit("<text ", 1)[1]
+    x = float(text.split('x="', 1)[1].split('"', 1)[0])
+    y = float(text.split('y="', 1)[1].split('"', 1)[0])
+    return x, y
 
 
 def test_the_plot_has_no_orientation_marker_unless_asked() -> None:

@@ -45,6 +45,31 @@ _DEFAULT_MAX_RANGE_MM = 4000.0
 #: the arm is on). Do not treat this as a general truth -- it is this mount.
 LIDAR_FRONT_OFFSET_DEG = 1.0
 
+#: The LiDAR's angle grows **clockwise seen from above** in this mount, the
+#: opposite of the usual counter-clockwise assumption. Measured 2026-10-28 with
+#: the same bottle placed twice and a 10 s scan each time: on the robot's
+#: front-left (~1,17 m) it landed in 315-330 deg, on the front-right (~1,07 m)
+#: it landed in 30-60 deg, and every other sector stayed put within 13 mm.
+#: Since 0 deg is the front, raw angles drawn straight to SVG (``y = center -
+#: r*sin``) mirror the whole picture -- exactly the "mirror tapi aneh" the
+#: operator reported. So the plot converts the angle (see
+#: :func:`_screen_angle_deg`): a true top-down view, drawn with the front at the
+#: top because that is the orientation the operator reads the plot in.
+LIDAR_ANGLE_CLOCKWISE = True
+
+
+def _screen_angle_deg(angle_deg: float) -> float:
+    """LiDAR-frame angle -> SVG screen angle: a top-down view, front upwards.
+
+    ``90 - angle`` for a clockwise frame: the front (0 deg) is drawn at the top,
+    the robot's own left (315-330 deg, measured) on the left of the plot and its
+    right (30-60 deg) on the right. The scan stays in the LiDAR's own frame
+    everywhere else -- reader, probe tools and this module's constants -- so
+    only the drawing carries the conversion and no probe has to be re-derived
+    when the view changes.
+    """
+    return 90.0 - angle_deg if LIDAR_ANGLE_CLOCKWISE else 90.0 + angle_deg
+
 #: Returns closer than this are the robot's own body (measured at 20-30 mm),
 #: not the room. Drawing them separately is the difference between "there is
 #: something right in front of me" and "I am looking at my own chassis".
@@ -138,10 +163,14 @@ def render_scan_svg(
 ) -> str:
     """Render a scan snapshot as an inline SVG polar plot.
 
-    Angle 0 deg points right (+x) and increases counter-clockwise, matching the
-    LiDAR's own convention. Valid points are coloured by distance (near = warm,
-    far = cool). Invalid (zero-distance) points are not drawn; their count is
-    reported in the panel text.
+    The picture is a **top-down view, not mirrored, drawn with the front at the
+    top**: the LiDAR's own (clockwise) frame is converted before drawing, see
+    :data:`LIDAR_ANGLE_CLOCKWISE` and :func:`_screen_angle_deg`. So the top of
+    the plot is where the robot looks, its own left is on the left and its right
+    is on the right -- with the front arrow at 90 deg instead of 0 deg. Drawing
+    the raw frame directly is what made the plot mirror the room. Valid points
+    are coloured by distance (near = warm, far = cool). Invalid (zero-distance)
+    points are not drawn; their count is reported in the panel text.
 
     Returns closer than ``SELF_RETURN_MM`` are drawn dark grey: on this robot
     they are the machine's own body (20-30 mm across a 150 deg arc), and calling
@@ -188,7 +217,7 @@ def render_scan_svg(
             continue
         distance = min(point.distance_mm, max_range_mm)
         r = distance / max_range_mm * radius
-        rad = math.radians(point.angle_deg)
+        rad = math.radians(_screen_angle_deg(point.angle_deg))
         x = center + r * math.cos(rad)
         y = center - r * math.sin(rad)
         if point.distance_mm < SELF_RETURN_MM:
@@ -213,28 +242,44 @@ def render_scan_svg(
 
 
 def _robot_front_marker(center: float, front_offset_deg: float) -> list[str]:
-    """The robot's hull plus a bold arrow for the direction its front points."""
-    rad = math.radians(front_offset_deg)
-    right = math.radians(front_offset_deg - 90.0)
-    length = 34.0
-    half_width = 9.0
-    tip = (center + length * math.cos(rad), center - length * math.sin(rad))
-    back = (center - 6 * math.cos(rad), center + 6 * math.sin(rad))
-    left = (
-        back[0] + half_width * math.cos(right),
-        back[1] - half_width * math.sin(right),
-    )
-    other = (
-        back[0] - half_width * math.cos(right),
-        back[1] + half_width * math.sin(right),
-    )
+    """A small top-down robot at the centre, its nose along the front.
+
+    A rounded chassis with a chevron nose and the word DEPAN, instead of the
+    filled triangle it used to be: the operator's words were "arah hadap robot
+    jangan segitiga gitu, jelek", and a triangle between the scan dots also
+    reads like an obstacle. Drawn as a symbol, not to scale -- at 4 m of display
+    range a true-to-size 30 cm chassis would be an 11 px smudge.
+
+    Converted with :func:`_screen_angle_deg` exactly like the scan points, so
+    the nose and the dots can never end up in two different frames. The
+    chassis is built pointing up and then rotated, because SVG rotates
+    clockwise on screen: a nose-up rectangle needs ``90 - screen_angle``, which
+    for a front offset of 1 deg comes out as a 1 deg tilt -- the measured
+    mounting offset, visible as a tilt rather than hidden as a constant.
+    """
+    screen = _screen_angle_deg(front_offset_deg)
+    rad = math.radians(screen)
+    rotate = 90.0 - screen
+    half_width = 12.0
+    length = 30.0
+    chevron = 9.0
+    label_gap = length / 2 + chevron + 12.0
+    top = center - length / 2
+    label_x = center + label_gap * math.cos(rad)
+    label_y = center - label_gap * math.sin(rad)
+    turn = f'rotate({rotate:.1f} {center:.1f} {center:.1f})'
     parts = [
-        f'<polygon points="{tip[0]:.1f},{tip[1]:.1f} {left[0]:.1f},{left[1]:.1f} '
-        f'{other[0]:.1f},{other[1]:.1f}" fill="#38bdf8" fill-opacity="0.85" '
-        f'stroke="#0ea5e9" stroke-width="1"/>',
-        f'<text x="{tip[0] + 4 * math.cos(rad):.1f}" '
-        f'y="{tip[1] - 4 * math.sin(rad):.1f}" fill="#38bdf8" font-size="10">'
-        f'DEPAN</text>',
+        f'<rect x="{center - half_width:.1f}" y="{top:.1f}" '
+        f'width="{2 * half_width:.1f}" height="{length:.1f}" rx="5" '
+        f'fill="#0ea5e9" fill-opacity="0.18" stroke="#38bdf8" '
+        f'stroke-width="1.4" transform="{turn}"/>',
+        f'<polyline points="{center - half_width * 0.7:.1f},{top:.1f} '
+        f'{center:.1f},{top - chevron:.1f} '
+        f'{center + half_width * 0.7:.1f},{top:.1f}" fill="none" '
+        f'stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round" '
+        f'stroke-linejoin="round" transform="{turn}"/>',
+        f'<text x="{label_x:.1f}" y="{label_y + 3.5:.1f}" fill="#38bdf8" '
+        f'font-size="10" text-anchor="middle">DEPAN</text>',
     ]
     return parts
 
@@ -299,9 +344,18 @@ def lidar_panel(reader: LidarReader) -> None:
             ui.html(heading_dial_svg(heading)).classes("shrink-0")
             with ui.column().classes("gap-0"):
                 ui.label(
-                    "Cincin tengah: panah biru = DEPAN robot, di sudut "
+                    "Bidang biru di tengah = robot (simbol, bukan skala); "
+                    "hidungnya = DEPAN, di sudut "
                     f"{LIDAR_FRONT_OFFSET_DEG:.1f} deg frame LiDAR (terukur dari "
-                    "dinding arena datar, sisa 5 mm)."
+                    "dinding arena datar, sisa 5 mm), jadi ia miring 1 deg dari "
+                    "atas."
+                ).classes("text-xs text-gray-600")
+                ui.label(
+                    "Plot = tampak atas, DEPAN selalu di ATAS, dan tidak "
+                    "ter-mirror: frame LiDAR di robot ini berputar searah jarum "
+                    "jam (terukur 28 Okt: botol di kiri-depan mendarat di "
+                    "315-330 deg), jadi gambarnya dibalik dulu. Sisi KIRI robot "
+                    "tampil di kiri plot, sisi KANAN di kanan."
                 ).classes("text-xs text-gray-600")
                 ui.label(
                     f"Titik abu-abu (jarak < {SELF_RETURN_MM:.0f} mm, "

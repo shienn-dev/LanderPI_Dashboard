@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from amr_core.lidar.protocol import POINTS_PER_PACKET, build_packet, decode_packet
@@ -58,6 +60,63 @@ def test_render_scan_svg_skips_invalid_points() -> None:
     svg = lidar_panel.render_scan_svg(acc.snapshot())
     # Background + 4 range rings only: no data dots.
     assert svg.count("<circle") == 5
+
+
+def _point_at(angle_deg: float, distance_mm: int = 1000):
+    """One valid return, placed at a chosen angle of the LiDAR's own frame."""
+    acc = ScanAccumulator(buckets=360)
+    acc.add_packet(
+        decode_packet(
+            build_packet(
+                speed_dps=3580,
+                start_angle_deg=angle_deg,
+                end_angle_deg=(angle_deg + 11.0) % 360.0,
+                timestamp_ms=0,
+                measurements=[(distance_mm, 1)] * POINTS_PER_PACKET,
+            )
+        )
+    )
+    return acc.snapshot()
+
+
+def _data_dots(svg: str) -> list[tuple[float, float]]:
+    """The plotted scan dots (r=1.8), as (x, y) on the SVG canvas."""
+    return [
+        (float(x), float(y))
+        for x, y in re.findall(r'<circle cx="([-\d.]+)" cy="([-\d.]+)" r="1\.8"', svg)
+    ]
+
+
+def test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left() -> None:
+    """A bottle on the floor proved the raw LiDAR frame is clockwise.
+
+    Measured 2026-10-28, same bottle, one 10 s scan per placement: on the
+    robot's front-left (~1,17 m) it appeared in 315-330 deg, on the front-right
+    (~1,07 m) it appeared in 30-60 deg, and every other sector stayed put within
+    13 mm. Drawn as a top-down view with the front up, a point in 315-330 deg
+    must land in the upper-left quadrant and a point in 30-60 deg in the
+    upper-right one. Drawing the raw angle directly mirrored the room instead.
+    """
+    assert lidar_panel.LIDAR_ANGLE_CLOCKWISE is True
+    center = 150.0
+    left = _data_dots(lidar_panel.render_scan_svg(_point_at(315.0)))
+    right = _data_dots(lidar_panel.render_scan_svg(_point_at(45.0)))
+    assert left and right
+    # Both sectors are in front of the robot, so both are above the centre.
+    assert all(y < center for _x, y in left + right)
+    assert all(x < center for x, _y in left)   # kiri robot = kiri plot
+    assert all(x > center for x, _y in right)  # kanan robot = kanan plot
+
+
+def test_the_front_marker_points_up_and_is_not_a_triangle() -> None:
+    """Operator: "arah hadap robot jangan segitiga gitu, jelek"."""
+    svg = lidar_panel.render_scan_svg(
+        _snapshot(), front_offset_deg=lidar_panel.LIDAR_FRONT_OFFSET_DEG
+    )
+    rect = svg.split('<rect x="', 1)[1].split("/>", 1)[0]
+    rotation = float(rect.split("rotate(", 1)[1].split(" ", 1)[0].rstrip(")"))
+    assert 0.0 <= rotation <= 5.0        # nose up; only the 1,0 deg mount offset
+    assert '<polyline points="' in svg   # a chevron nose, not a filled triangle
 
 
 def test_runtime_exposes_a_single_shared_reader() -> None:
