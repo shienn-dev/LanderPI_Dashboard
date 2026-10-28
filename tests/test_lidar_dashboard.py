@@ -108,15 +108,59 @@ def test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left() -> None:
     assert all(x > center for x, _y in right)  # kanan robot = kanan plot
 
 
-def test_the_front_marker_points_up_and_is_not_a_triangle() -> None:
-    """Operator: "arah hadap robot jangan segitiga gitu, jelek"."""
+def test_the_front_marker_is_the_robot_and_carries_no_label() -> None:
+    """Operator: "gausah dikasi tulisan depan ... ga kaya geometri jelek gitu"."""
     svg = lidar_panel.render_scan_svg(
         _snapshot(), front_offset_deg=lidar_panel.LIDAR_FRONT_OFFSET_DEG
     )
-    rect = svg.split('<rect x="', 1)[1].split("/>", 1)[0]
-    rotation = float(rect.split("rotate(", 1)[1].split(" ", 1)[0].rstrip(")"))
-    assert 0.0 <= rotation <= 5.0        # nose up; only the 1,0 deg mount offset
-    assert '<polyline points="' in svg   # a chevron nose, not a filled triangle
+    assert '<g class="robot-marker"' in svg
+    group = svg.split('<g class="robot-marker" transform="rotate(', 1)[1]
+    rotation = float(group.split(" ", 1)[0])
+    assert 0.0 <= rotation <= 5.0   # nose up, only the 1,0 deg mount offset
+    assert "DEPAN" not in svg       # no word on the plot
+    assert "<polygon" not in svg    # no triangle
+    assert svg.count('class="wheel"') == 4
+
+
+def _body_rect(svg: str) -> tuple[float, float]:
+    """(width, height) of the chassis rectangle in px, from the rendered SVG."""
+    group = svg.split('<g class="robot-marker"', 1)[1]
+    rect = group.split('<rect x="', 1)[1].split("/>", 1)[0]
+    width = float(rect.split('width="', 1)[1].split('"', 1)[0])
+    height = float(rect.split('height="', 1)[1].split('"', 1)[0])
+    return width, height
+
+
+def test_the_robot_is_drawn_to_scale_so_a_one_metre_gap_looks_like_one_metre() -> None:
+    """Operator: a big marker made a 1,17 m wall look like it touched the robot.
+
+    Footprint is nominal (``ROBOT_FOOTPRINT_MM``) but the scale is real: every
+    pixel the robot occupies comes from millimetres times the plot's own
+    px/millimetre, so it shrinks and grows with the display range instead of
+    sitting there as a fixed 32 px symbol that ate the gap to the wall.
+    """
+    width_mm, length_mm = lidar_panel.ROBOT_FOOTPRINT_MM
+    radius = 300 / 2 - 8
+    px_per_mm = radius / lidar_panel._DEFAULT_MAX_RANGE_MM
+    width, height = _body_rect(
+        lidar_panel.render_scan_svg(
+            _snapshot(), front_offset_deg=lidar_panel.LIDAR_FRONT_OFFSET_DEG
+        )
+    )
+    assert width == pytest.approx(width_mm * px_per_mm, abs=0.05)
+    assert height == pytest.approx(length_mm * px_per_mm, abs=0.05)
+    # At 4 m the chassis is ~12 px long: a wall at 1,17 m sits 41 px away, so the
+    # gap now reads as the metre it is instead of as 10 px of empty space.
+    assert height < 14.0
+
+    zoomed = _body_rect(
+        lidar_panel.render_scan_svg(
+            _snapshot(),
+            front_offset_deg=lidar_panel.LIDAR_FRONT_OFFSET_DEG,
+            max_range_mm=lidar_panel._DEFAULT_MAX_RANGE_MM / 2,
+        )
+    )
+    assert zoomed[1] == pytest.approx(2 * height, rel=0.02)
 
 
 def test_runtime_exposes_a_single_shared_reader() -> None:

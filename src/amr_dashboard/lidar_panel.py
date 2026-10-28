@@ -70,6 +70,14 @@ def _screen_angle_deg(angle_deg: float) -> float:
     """
     return 90.0 - angle_deg if LIDAR_ANGLE_CLOCKWISE else 90.0 + angle_deg
 
+#: Nominal footprint of the machine, ``(lebar, panjang)`` in mm, used to draw
+#: the robot **to scale** inside the polar plot. Deliberately nominal: the
+#: chassis of this school unit has not been put under a tape measure, and a
+#: symbolic size is what made a wall 1,17 m away look like it touched the robot
+#: ("kesannya kayak tembok dan robot berdekatan"). Replace with a measured
+#: value the day the frame is measured.
+ROBOT_FOOTPRINT_MM = (260.0, 350.0)
+
 #: Returns closer than this are the robot's own body (measured at 20-30 mm),
 #: not the room. Drawing them separately is the difference between "there is
 #: something right in front of me" and "I am looking at my own chassis".
@@ -230,7 +238,11 @@ def render_scan_svg(
         )
 
     if front_offset_deg is not None:
-        parts.extend(_robot_front_marker(center, front_offset_deg))
+        parts.extend(
+            _robot_front_marker(
+                center, front_offset_deg, px_per_mm=radius / max_range_mm
+            )
+        )
 
     # Range label.
     parts.append(
@@ -241,47 +253,71 @@ def render_scan_svg(
     return "".join(parts)
 
 
-def _robot_front_marker(center: float, front_offset_deg: float) -> list[str]:
-    """A small top-down robot at the centre, its nose along the front.
+def _robot_front_marker(
+    center: float,
+    front_offset_deg: float,
+    *,
+    px_per_mm: float,
+) -> list[str]:
+    """Draw the robot at the centre of the plot, nose along the front.
 
-    A rounded chassis with a chevron nose and the word DEPAN, instead of the
-    filled triangle it used to be: the operator's words were "arah hadap robot
-    jangan segitiga gitu, jelek", and a triangle between the scan dots also
-    reads like an obstacle. Drawn as a symbol, not to scale -- at 4 m of display
-    range a true-to-size 30 cm chassis would be an 11 px smudge.
+    Shape history, kept because it explains the drawing: filled triangle
+    ("arah hadap robot jangan segitiga gitu, jelek"), then a labelled chevron
+    ("gausah dikasi tulisan depan ... kalau kamu bisa gambarkan robotnya"), and
+    now the machine itself -- chassis, four wheels down the sides, one sensor
+    bump on the nose edge, hub where the LiDAR sits. The only asymmetry is
+    front-vs-back, which is what makes the facing readable without a word.
+
+    Scale is not cosmetic. At 4 m of display range a wall 1,17 m away sits 41 px
+    from the centre; a symbolic 32 px robot ate most of that gap and the
+    operator read the picture as "tembok dan robot berdekatan". So every size
+    below is millimetres times ``px_per_mm`` (see :data:`ROBOT_FOOTPRINT_MM`),
+    which keeps the picture honest at any display range instead of only at one.
 
     Converted with :func:`_screen_angle_deg` exactly like the scan points, so
-    the nose and the dots can never end up in two different frames. The
-    chassis is built pointing up and then rotated, because SVG rotates
-    clockwise on screen: a nose-up rectangle needs ``90 - screen_angle``, which
-    for a front offset of 1 deg comes out as a 1 deg tilt -- the measured
-    mounting offset, visible as a tilt rather than hidden as a constant.
+    the nose and the dots can never end up in two different frames. Everything
+    is built nose-up and rotated as one group: SVG rotates clockwise on screen,
+    so nose-up needs ``90 - screen_angle`` -- for the measured front offset of
+    1 deg that comes out as a 1 deg tilt.
     """
-    screen = _screen_angle_deg(front_offset_deg)
-    rad = math.radians(screen)
-    rotate = 90.0 - screen
-    half_width = 12.0
-    length = 30.0
-    chevron = 9.0
-    label_gap = length / 2 + chevron + 12.0
-    top = center - length / 2
-    label_x = center + label_gap * math.cos(rad)
-    label_y = center - label_gap * math.sin(rad)
-    turn = f'rotate({rotate:.1f} {center:.1f} {center:.1f})'
+    rotate = 90.0 - _screen_angle_deg(front_offset_deg)
+    footprint_width_mm, footprint_length_mm = ROBOT_FOOTPRINT_MM
+    half_width = footprint_width_mm / 2 * px_per_mm
+    length = footprint_length_mm * px_per_mm
+    half_length = length / 2
+    top = center - half_length
+    wheel_width = 40.0 * px_per_mm
+    wheel_length = 90.0 * px_per_mm
+    nose_inset = 20.0 * px_per_mm
+    left_x = center - half_width - wheel_width / 2
+    right_x = center + half_width - wheel_width / 2
     parts = [
-        f'<rect x="{center - half_width:.1f}" y="{top:.1f}" '
-        f'width="{2 * half_width:.1f}" height="{length:.1f}" rx="5" '
+        f'<g class="robot-marker" transform="rotate({rotate:.1f} '
+        f'{center:.1f} {center:.1f})">',
+        f'<rect x="{center - half_width:.2f}" y="{top:.2f}" '
+        f'width="{2 * half_width:.2f}" height="{length:.2f}" rx="2" '
         f'fill="#0ea5e9" fill-opacity="0.18" stroke="#38bdf8" '
-        f'stroke-width="1.4" transform="{turn}"/>',
-        f'<polyline points="{center - half_width * 0.7:.1f},{top:.1f} '
-        f'{center:.1f},{top - chevron:.1f} '
-        f'{center + half_width * 0.7:.1f},{top:.1f}" fill="none" '
-        f'stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round" '
-        f'stroke-linejoin="round" transform="{turn}"/>',
-        f'<text x="{label_x:.1f}" y="{label_y + 3.5:.1f}" fill="#38bdf8" '
-        f'font-size="10" text-anchor="middle">DEPAN</text>',
+        f'stroke-width="1.1"/>',
     ]
+    for wheel_x in (left_x, right_x):
+        for wheel_y in (top + nose_inset, top + length - nose_inset - wheel_length):
+            parts.append(
+                f'<rect class="wheel" x="{wheel_x:.2f}" y="{wheel_y:.2f}" '
+                f'width="{wheel_width:.2f}" height="{wheel_length:.2f}" '
+                f'rx="0.8" fill="#64748b"/>'
+            )
+    sensor_r = 45.0 * px_per_mm
+    parts.append(
+        f'<circle cx="{center:.2f}" cy="{top:.2f}" r="{sensor_r:.2f}" '
+        f'fill="#38bdf8"/>'
+    )
+    parts.append(
+        f'<circle cx="{center:.2f}" cy="{center:.2f}" r="{sensor_r * 0.5:.2f}" '
+        f'fill="#94a3b8"/>'
+    )
+    parts.append("</g>")
     return parts
+
 
 
 def lidar_panel(reader: LidarReader) -> None:
@@ -344,14 +380,17 @@ def lidar_panel(reader: LidarReader) -> None:
             ui.html(heading_dial_svg(heading)).classes("shrink-0")
             with ui.column().classes("gap-0"):
                 ui.label(
-                    "Bidang biru di tengah = robot (simbol, bukan skala); "
-                    "hidungnya = DEPAN, di sudut "
-                    f"{LIDAR_FRONT_OFFSET_DEG:.1f} deg frame LiDAR (terukur dari "
-                    "dinding arena datar, sisa 5 mm), jadi ia miring 1 deg dari "
-                    "atas."
+                    "Gambar di tengah = robot dilihat dari atas, digambar "
+                    "sesuai skala nominal "
+                    f"{ROBOT_FOOTPRINT_MM[0] / 1000:.2f} x "
+                    f"{ROBOT_FOOTPRINT_MM[1] / 1000:.2f} m (ukuran pabrik belum "
+                    "diukur dengan meteran): empat roda abu-abu, sensor biru di "
+                    "hidung = arah hadap, titik di tengah = LiDAR. Dipasang "
+                    f"miring {LIDAR_FRONT_OFFSET_DEG:.1f} deg dari atas, sesuai "
+                    "offset terukur dari dinding arena datar (sisa 5 mm)."
                 ).classes("text-xs text-gray-600")
                 ui.label(
-                    "Plot = tampak atas, DEPAN selalu di ATAS, dan tidak "
+                    "Plot = tampak atas, arah hadap robot selalu ke ATAS, dan tidak "
                     "ter-mirror: frame LiDAR di robot ini berputar searah jarum "
                     "jam (terukur 28 Okt: botol di kiri-depan mendarat di "
                     "315-330 deg), jadi gambarnya dibalik dulu. Sisi KIRI robot "
