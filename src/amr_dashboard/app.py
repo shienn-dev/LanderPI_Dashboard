@@ -28,6 +28,7 @@ from nicegui import app, context, ui
 from amr_core.lidar.config import LidarConfig
 from amr_core.mission import MissionConfig, validate_mission
 from amr_core.mission_runner import mission_status
+from amr_core.robot.interfaces import ConnectionState
 from amr_core.samples import SAMPLE_MISSIONS, get_sample_mission
 from amr_core.states import RobotState
 from amr_core.vision import sample_detections
@@ -214,7 +215,14 @@ def layout_signature(state: DashboardState) -> tuple[str, ...]:
     return (
         state.mode,
         "live" if adapters.live else "offline",
-        "arm-live" if adapters.arm_live else "arm-offline",
+        # "arm-live" means *connected*, not merely "flag given": otherwise a
+        # failed port open would leave the panel claiming LIVE while nothing is
+        # attached, and a retry could never rebuild this layout.
+        (
+            "arm-live"
+            if adapters.arm_live and adapters.arm.state() is ConnectionState.CONNECTED
+            else "arm-offline"
+        ),
     )
 
 

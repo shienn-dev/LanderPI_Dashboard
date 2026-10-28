@@ -82,3 +82,18 @@ def test_the_live_panel_renders_without_offering_the_gripper() -> None:
         assert adapters.arm_live is True
     finally:
         robot_runtime.reset_adapters()
+
+
+def test_a_live_arm_that_could_not_open_the_port_says_so_and_stays_quiet() -> None:
+    """The port is shared with the chassis, so "flag given" != "connected"."""
+    robot_runtime.reset_adapters()
+    try:
+        robot_runtime.configure(arm_live=True)
+        assert robot_runtime.get_adapters().arm_live is True
+        # Nothing has opened the port yet: the panel must not claim LIVE.
+        adapters = robot_runtime.get_adapters()
+        assert adapters.arm.state() is not ConnectionState.CONNECTED
+        robot_panel.arm_control_panel(adapters)   # renders the "belum tersambung" card
+        assert adapters.arm.stats.frames_sent == 0
+    finally:
+        robot_runtime.reset_adapters()

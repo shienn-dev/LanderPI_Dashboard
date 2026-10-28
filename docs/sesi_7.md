@@ -206,19 +206,19 @@ scan yang sama.
 | `src/amr_dashboard/lidar_panel.py` | +124 / −31 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang dua kali: `<polygon>` segitiga → `<rect>` + chevron + label DEPAN → gambar robot `<g class="robot-marker">` berisi bodi + 4 roda + sensor hidung + hub, tanpa tulisan), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
 | `tests/test_lidar_dashboard.py` | +103 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_is_the_robot_and_carries_no_label()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 & 3 di dalam test (tanpa `<polygon>`, tanpa teks `DEPAN`, 4 roda) |
 | `tests/test_imu_heading.py` | +10 / −13 | `test_the_plot_draws_the_robot_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` membaca rotasi grup robot | test lama membaca `<polygon>` dan label `DEPAN` yang sudah tidak ada |
-| `docs/sesi_7.md` | +1045 / −0 | dokumen ini | aturan log per sesi |
+| `docs/sesi_7.md` | +1089 / −0 | dokumen ini | aturan log per sesi |
 | `src/amr_core/robot/arm_bus.py` (baru) | +358 / −18 | frame bus-servo, limit terukur sebagai clamp, gripper ditolak | §11.8 |
 | `src/amr_dashboard/arm_transport.py` (baru) | +25 / −0 | opener port arm di lapisan dashboard | §11.8 |
 | `tests/test_arm_bus.py` (baru) | +273 / −0 | 15 test protokol, baca posisi, keselamatan arm | §11.8, §11.9 |
 | `src/amr_dashboard/robot_runtime.py` | +65 / −5 | saklar arm terpisah, `activate_live_arm()` | §11.9 |
-| `src/amr_dashboard/robot_panel.py` | +82 / −0 | panel arm live (langkah 10 pulse, baca posisi, STOP) | §11.9 |
-| `src/amr_dashboard/app.py` | +29 / −10 | signature layout + banner ARM LIVE | §11.9 |
+| `src/amr_dashboard/robot_panel.py` | +115 / −1 | panel arm live (langkah 10 pulse, baca posisi, STOP) | §11.9 |
+| `src/amr_dashboard/app.py` | +33 / −11 | signature layout + banner ARM LIVE | §11.9 |
 | `src/amr_dashboard/__main__.py` | +13 / −0 | flag `--arm-live` | §11.9 |
-| `tests/test_dashboard_arm_live.py` (baru) | +84 / −0 | arm offline tanpa flag, buka port tidak menggerakkan | §11.9 |
+| `tests/test_dashboard_arm_live.py` (baru) | +108 / −0 | arm offline tanpa flag, buka port tidak menggerakkan | §11.9 |
 | `tests/test_ux_traceability.py` | +5 / −4 | signature jadi tiga entri | §11.9 |
 | `tests/test_dashboard_chassis_online.py` | +4 / −2 | idem | §11.9 |
 
-Total: **+2220 / −83** di 14 file (7 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
+Total: **+2372 / −85** di 15 file (7 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
@@ -987,11 +987,11 @@ keduanya bisa hidup sendiri-sendiri.
 | --- | --- | --- |
 | `src/amr_core/robot/arm_bus.py` | +146 / −18 | `move_joints({id: pulse})` (pindahkan satu sendi tanpa perlu tahu posisi sendi lain), `read_positions()` + `build_read_position_frame()` + `parse_bus_servo_reply()` + `decode_position()`, satu jalur tulis `_transmit()` |
 | `src/amr_dashboard/robot_runtime.py` | +65 / −5 | `RobotAdapters.arm_live`, `build_adapters(arm_live=)`, `configure(arm_live=)`, `activate_live_arm()` (idempoten, gagal = tetap offline + alasan), `close_adapters()` ikut menutup arm |
-| `src/amr_dashboard/robot_panel.py` | +82 / −0 | `_live_arm_panel`: per sendi 1-5 tombol −10/+10 (0,8 s, clamp limit terukur), tombol Baca posisi, STOP; gripper tidak ada di panel |
-| `src/amr_dashboard/app.py` | +29 / −10 | signature layout memuat keadaan arm (panel ikut dibangun ulang), banner ARM LIVE saat start |
+| `src/amr_dashboard/robot_panel.py` | +115 / −1 | `_live_arm_panel`: per sendi 1-5 tombol −10/+10 (0,8 s, clamp limit terukur), tombol Baca posisi, STOP; gripper tidak ada di panel |
+| `src/amr_dashboard/app.py` | +33 / −11 | signature layout memuat keadaan arm (panel ikut dibangun ulang), banner ARM LIVE saat start |
 | `src/amr_dashboard/__main__.py` | +13 / −0 | flag `--arm-live` + grup bantuan "Arm" |
 | `tests/test_arm_bus.py` | +107 / −0 | uji baca-tulis: frame baca = `aa 55 05 02 05 01 6f` (persis yang dijawab board), dekode posisi, status != 0 ditolak, `move_joints` hanya menyentuh yang diminta, gripper & id asing ditolak, stop tidak memuat id 10 |
-| `tests/test_dashboard_arm_live.py` (baru) | +84 / −0 | arm tetap offline tanpa flag; `activate_live_arm()` membuka satu port dan **tidak mengirim apa pun**; idempoten; panel live merender tanpa menawarkan gripper |
+| `tests/test_dashboard_arm_live.py` (baru) | +108 / −0 | arm tetap offline tanpa flag; `activate_live_arm()` membuka satu port dan **tidak mengirim apa pun**; idempoten; panel live merender tanpa menawarkan gripper |
 | `tests/test_ux_traceability.py`, `tests/test_dashboard_chassis_online.py` | +9 / −6 | signature layout kini tiga entri (mode, chassis, arm) |
 
 Keputusan desain yang perlu dibaca operator:
@@ -1016,6 +1016,43 @@ Keputusan desain yang perlu dibaca operator:
 **Belum dijalankan di robot**: `--arm-live` belum pernah dipakai pada board ini;
 uji pertama lewat dashboard masih menunggu operator (dan gripper tetap
 dikecualikan).
+
+
+### 11.9.1 Pre-flight di mesin nyata: port dipakai bersama, dan UI yang jujur
+
+Sebelum menyerahkan dashboard ke operator, kujalankan pre-flight sendiri
+(`run_dashboard.py --arm-live --port 8099 --no-lidar`, port terpisah, tanpa
+LiDAR). Hasilnya menemukan satu hal penting:
+
+| Temuan | Bukti | Grade |
+| --- | --- | --- |
+| `/dev/ttyACM0` dipegang dashboard operator (pid 34828, start 17:13, port 8080 tanpa flag) | `fuser -v` + `ss -ltnp` | TERUKUR |
+| Arm tidak bisa membuka port kedua | log: `OSError: /dev/ttyACM0 is already open in another process (pid 34828)` | TERUKUR |
+| Panel tidak lagi mengaku LIVE saat port gagal dibuka | halaman 8099 memuat "Arm belum tersambung" + tombol "Coba sambungkan" + catatan gripper | TERVERIFIKASI |
+
+Dua perbaikan yang lahir dari pre-flight itu:
+
+1. **Signature layout memakai keadaan *tersambung*, bukan sekadar flag.**
+   Sebelumnya `arm_live=True` (dari `configure()`) langsung membuat panel
+   mengklaim LIVE walau portnya gagal dibuka, dan karena signaturnya tidak
+   berubah, tombol "coba lagi" tidak akan pernah membangun ulang panel.
+   Sekarang: `arm-live` hanya bila `state() is CONNECTED`.
+2. **Panel "belum tersambung" yang menyebut sebabnya**, plus catatan bahwa
+   board/chassis/arm memakai satu port yang sama dan hanya satu proses boleh
+   memegangnya.
+
+**Keterbatasan yang dicatat, bukan disembunyikan:** untuk sekarang
+`--chassis-live` dan `--arm-live` **tidak bisa hidup bersamaan**, karena
+masing-masing membuka handle sendiri pada port yang sama. Perbaikannya adalah
+berbagi satu handle (chassis + arm membaca/menulis pada port yang dibuka sekali)
+-- pekerjaan sesi berikutnya, dan ia menuntut pembaca balasan bus-servo tidak
+bertabrakan dengan stream motor/IMU.
+
+| Verifikasi | Hasil |
+| --- | --- |
+| `pytest -q` | **446 passed** |
+| `ruff check .` | bersih |
+| Pre-flight `--arm-live` pada port 8099 | menjalankan server, panel arm terender, port ditolak dengan alasan PID, **nol byte gerak** |
 
 ---
 

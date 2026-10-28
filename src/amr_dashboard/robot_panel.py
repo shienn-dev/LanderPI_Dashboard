@@ -12,6 +12,7 @@ from __future__ import annotations
 from nicegui import ui
 
 from amr_core.robot.interfaces import ArmCommand, CommandOutcome, ConnectionState
+from amr_dashboard import robot_runtime
 from amr_dashboard.robot_runtime import RobotAdapters
 
 _STATE_COLOR: dict[ConnectionState, str] = {
@@ -92,7 +93,10 @@ def odometry_panel(adapters: RobotAdapters) -> None:
 def arm_control_panel(adapters: RobotAdapters) -> None:
     arm = adapters.arm
     if getattr(adapters, "arm_live", False):
-        _live_arm_panel(arm)
+        if arm.state() is ConnectionState.CONNECTED:
+            _live_arm_panel(arm)
+        else:
+            _unconnected_arm_panel(arm)
         return
     with ui.card().classes("flex-1 min-w-[320px]"):
         with ui.row().classes("items-center gap-3"):
@@ -206,3 +210,34 @@ def _live_arm_panel(arm) -> None:
                 on_click=lambda: ui.notify(arm.stop().reason, color="warning"),
             ).props("color=negative dense")
         refresh()
+
+
+def _unconnected_arm_panel(arm) -> None:
+    """The arm was asked for but the port is not open: say why, offer a retry.
+
+    This is the state a second dashboard lands in when the first one already
+    holds the board's port -- the two are the *same* port on the same STM32, so
+    only one handle can exist. Same for a chassis that went ONLINE first.
+    """
+    with ui.card().classes("flex-1 min-w-[320px]"):
+        with ui.row().classes("items-center gap-3"):
+            ui.icon("precision_manufacturing")
+            ui.label("Arm control").classes("text-sm text-gray-500 uppercase")
+            _state_badge(arm.state())
+        stats = getattr(arm, "stats", None)
+        reason = getattr(stats, "last_reason", "") or "penyebab tidak dilaporkan"
+        ui.label(f"Arm belum tersambung: {reason}").classes("text-xs text-red-700")
+        ui.label(
+            "Board, chassis dan arm memakai PORT YANG SAMA, jadi hanya satu proses "
+            "yang boleh memegangnya. Kalau dashboard lain (atau panel chassis yang "
+            "sudah ONLINE) memegang /dev/ttyACM0, arm tidak bisa membuka sendiri."
+        ).classes("text-xs text-gray-600")
+
+        def retry() -> None:
+            activation = robot_runtime.activate_live_arm()
+            ui.notify(activation.message, color="positive" if activation.ok else "negative")
+
+        ui.button("Coba sambungkan", icon="cable", on_click=retry).props("outline")
+        ui.label(
+            "Gripper (servo 10) tetap tidak akan muncul di panel ini: aturan operator."
+        ).classes("text-xs text-amber-700")
