@@ -366,6 +366,42 @@ Commit & push (ronde 2, atas perintah operator):
 | Commit dokumen | `docs: log session 7` (commit dokumen ini sendiri) |
 | Push | `main` -> `origin/main` |
 
+
+### 10.1 Adendum 14:31-14:35 — dua pembacaan LiDAR GAGAL: dashboard sudah memegang port
+
+Setelah perbaikan di-commit dan di-push, dua pembacaan susulan **GAGAL** dan
+sebabnya terukur, bukan ditebak:
+
+| Waktu | Aksi | Hasil | Grade |
+| --- | --- | --- | --- |
+| 14:31 | regenerasi `plot_before_after.html` (10 s) | `status=ERROR packets_ok=1316` (normalnya 4150), waktu baca efektif terpotong | **GAGAL** |
+| 14:34 | pembacaan verifikasi 6 s | `status=ERROR packets_ok=848 crc=0 sync=0 reconnects=4`, `last_error: SerialException: device reports readiness to read but returned no data (device disconnected or multiple access on port?)` | **GAGAL** |
+
+Sebab: **dua pembaca pada satu port**. `fuser -v /dev/ttyUSB0` menunjukkan
+`stematelpi5 13855 F.... python`, yaitu `run_dashboard.py` yang dijalankan
+operator pada **14:22:17** (masih hidup, listen di `127.0.0.1:8080`). Ini
+persis yang sudah dicatat sesi 6 §12.11: port serial satu pemilik. Catatan
+pembaca menyebut siklus `connected ... serial error ... connected` empat kali.
+
+Yang **tidak** terpengaruh: §3.2 (ketiga scan A/B/C) — semuanya diambil sebelum
+14:22, ketika belum ada dashboard, dan tiap scan mencatat `crc=0 sync=0
+coverage=100%`. Peta ASCII §10 juga dibaca dari scan C yang bersih.
+
+Yang **terpengaruh**: `plot_before_after.html` versi 14:31 (dibaca sebagian
+dengan status ERROR; jarak per sektor tetap sah karena CRC bersih dan delta-nya
+kecil, tetapi berkas itu **belum boleh dipakai sebagai bukti**). Regenerasinya
+menunggu dashboard berhenti.
+
+Aturan untuk sesi berikutnya: **hentikan dashboard dulu, baru jalankan probe**
+(`pkill -f run_dashboard.py`), atau jangan jalankan probe sama sekali selama
+operator memakai dashboard.
+
+Catatan penting yang ditemukan di sini: kode `lidar_panel.py` terakhir berubah
+**14:27:31**, sedangkan proses dashboard hidup sejak **14:22:17** -- jadi
+dashboard yang sedang dilihat operator masih memuat gambar versi antara
+(cermin sudah dibalik, tetapi depan masih ke kanan dan penandanya masih
+segitiga). Perlu **restart dashboard** supaya tampilan ronde 2 muncul.
+
 ---
 
 ## Lampiran — cara menjalankan
