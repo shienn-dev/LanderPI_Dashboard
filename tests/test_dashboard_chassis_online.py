@@ -158,8 +158,10 @@ def test_the_layout_rebuilds_when_the_chassis_goes_live() -> None:
     robot_runtime.activate_live_chassis("/dev/fake", port_factory=factory, settle_s=0.0)
 
     after = dash.layout_signature(state)
-    assert before == ("competition", "offline")
-    assert after == ("competition", "live")
+    # The signature carries the arm's state too (a separate switch from the
+    # chassis), so the offline baseline has three entries.
+    assert before == ("competition", "offline", "arm-offline")
+    assert after == ("competition", "live", "arm-offline")
 
 
 def test_the_offline_panel_renders_the_online_control_and_stays_silent() -> None:

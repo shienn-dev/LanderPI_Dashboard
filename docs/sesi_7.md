@@ -206,12 +206,19 @@ scan yang sama.
 | `src/amr_dashboard/lidar_panel.py` | +124 / −31 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang dua kali: `<polygon>` segitiga → `<rect>` + chevron + label DEPAN → gambar robot `<g class="robot-marker">` berisi bodi + 4 roda + sensor hidung + hub, tanpa tulisan), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
 | `tests/test_lidar_dashboard.py` | +103 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_is_the_robot_and_carries_no_label()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 & 3 di dalam test (tanpa `<polygon>`, tanpa teks `DEPAN`, 4 roda) |
 | `tests/test_imu_heading.py` | +10 / −13 | `test_the_plot_draws_the_robot_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` membaca rotasi grup robot | test lama membaca `<polygon>` dan label `DEPAN` yang sudah tidak ada |
-| `docs/sesi_7.md` | +1001 / −0 | dokumen ini | aturan log per sesi |
-| `src/amr_core/robot/arm_bus.py` (baru) | +212 / −0 | frame bus-servo, limit terukur sebagai clamp, gripper ditolak | §11.8 |
+| `docs/sesi_7.md` | +1045 / −0 | dokumen ini | aturan log per sesi |
+| `src/amr_core/robot/arm_bus.py` (baru) | +358 / −18 | frame bus-servo, limit terukur sebagai clamp, gripper ditolak | §11.8 |
 | `src/amr_dashboard/arm_transport.py` (baru) | +25 / −0 | opener port arm di lapisan dashboard | §11.8 |
-| `tests/test_arm_bus.py` (baru) | +166 / −0 | 10 test protokol/keselamatan arm | §11.8 |
+| `tests/test_arm_bus.py` (baru) | +273 / −0 | 15 test protokol, baca posisi, keselamatan arm | §11.8, §11.9 |
+| `src/amr_dashboard/robot_runtime.py` | +65 / −5 | saklar arm terpisah, `activate_live_arm()` | §11.9 |
+| `src/amr_dashboard/robot_panel.py` | +82 / −0 | panel arm live (langkah 10 pulse, baca posisi, STOP) | §11.9 |
+| `src/amr_dashboard/app.py` | +29 / −10 | signature layout + banner ARM LIVE | §11.9 |
+| `src/amr_dashboard/__main__.py` | +13 / −0 | flag `--arm-live` | §11.9 |
+| `tests/test_dashboard_arm_live.py` (baru) | +84 / −0 | arm offline tanpa flag, buka port tidak menggerakkan | §11.9 |
+| `tests/test_ux_traceability.py` | +5 / −4 | signature jadi tiga entri | §11.9 |
+| `tests/test_dashboard_chassis_online.py` | +4 / −2 | idem | §11.9 |
 
-Total: **+1641 / −44** di 7 file (4 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
+Total: **+2220 / −83** di 14 file (7 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
@@ -949,7 +956,7 @@ Grade: TERVERIFIKASI (dibaca dari tabel dan kode vendor), belum dijalankan.
 
 | Berkas | +/− | Isi | Mengapa |
 | --- | --- | --- | --- |
-| `src/amr_core/robot/arm_bus.py` (baru) | +212 / −0 | `ARM_JOINT_IDS=(1..5)`, `GRIPPER_ID=10`, `MEASURED_LIMITS` (hasil ukur), `build_set_position_frame()`, `build_stop_frame()`, `BusServoArmAdapter` | satu tempat untuk frame bus-servo + pagar keselamatan |
+| `src/amr_core/robot/arm_bus.py` (baru) | +358 / −18 | `ARM_JOINT_IDS=(1..5)`, `GRIPPER_ID=10`, `MEASURED_LIMITS` (hasil ukur), `build_set_position_frame()`, `build_stop_frame()`, `BusServoArmAdapter` | satu tempat untuk frame bus-servo + pagar keselamatan |
 | `src/amr_dashboard/arm_transport.py` (baru) | +25 / −0 | `open_arm_port()` yang memakai opener chassis (baud 1 M, DTR/RTS diturunkan, cek pemegang port) | `amr_core.robot` dilarang impor pyserial (guard test) |
 | `tests/test_arm_bus.py` (baru) | +166 / −0 | 10 test: frame byte-identik vendor, clamp ke limit terukur, gripper ditolak, durasi < 0,5 s ditolak, tanpa port tidak mengirim, stop menyebut 5 sendi | mengunci protokol dan aturan gripper |
 
@@ -968,6 +975,47 @@ mestinya.
 Belum terverifikasi di hardware: adapter ini **belum pernah mengirim satu byte**
 (port tidak pernah dibuka lewat adapter), dan frame `stop` (0x03) belum diuji di
 board.
+
+
+### 11.9 Arm masuk dashboard di belakang `--arm-live`
+
+Permintaan operator: *"Lanjut itu"* (menyambungkan adapter arm ke panel Arm).
+Dua saklar terpisah: `--chassis-live` untuk roda, `--arm-live` untuk arm, dan
+keduanya bisa hidup sendiri-sendiri.
+
+| Berkas | +/− | Isi |
+| --- | --- | --- |
+| `src/amr_core/robot/arm_bus.py` | +146 / −18 | `move_joints({id: pulse})` (pindahkan satu sendi tanpa perlu tahu posisi sendi lain), `read_positions()` + `build_read_position_frame()` + `parse_bus_servo_reply()` + `decode_position()`, satu jalur tulis `_transmit()` |
+| `src/amr_dashboard/robot_runtime.py` | +65 / −5 | `RobotAdapters.arm_live`, `build_adapters(arm_live=)`, `configure(arm_live=)`, `activate_live_arm()` (idempoten, gagal = tetap offline + alasan), `close_adapters()` ikut menutup arm |
+| `src/amr_dashboard/robot_panel.py` | +82 / −0 | `_live_arm_panel`: per sendi 1-5 tombol −10/+10 (0,8 s, clamp limit terukur), tombol Baca posisi, STOP; gripper tidak ada di panel |
+| `src/amr_dashboard/app.py` | +29 / −10 | signature layout memuat keadaan arm (panel ikut dibangun ulang), banner ARM LIVE saat start |
+| `src/amr_dashboard/__main__.py` | +13 / −0 | flag `--arm-live` + grup bantuan "Arm" |
+| `tests/test_arm_bus.py` | +107 / −0 | uji baca-tulis: frame baca = `aa 55 05 02 05 01 6f` (persis yang dijawab board), dekode posisi, status != 0 ditolak, `move_joints` hanya menyentuh yang diminta, gripper & id asing ditolak, stop tidak memuat id 10 |
+| `tests/test_dashboard_arm_live.py` (baru) | +84 / −0 | arm tetap offline tanpa flag; `activate_live_arm()` membuka satu port dan **tidak mengirim apa pun**; idempoten; panel live merender tanpa menawarkan gripper |
+| `tests/test_ux_traceability.py`, `tests/test_dashboard_chassis_online.py` | +9 / −6 | signature layout kini tiga entri (mode, chassis, arm) |
+
+Keputusan desain yang perlu dibaca operator:
+
+1. **Bukan tombol tahan-tekan.** Roda bergerak terus selama tombol ditahan; arm
+   bergerak ke posisi absolut, jadi menahan tombol hanya akan mengulang perintah
+   yang sama. Satu tekan = satu langkah 10 pulse / 0,8 s.
+2. **Satu sendi per perintah.** `move_joints` hanya menyertakan sendi yang
+   diminta, sehingga tidak perlu (dan tidak boleh) menebak posisi sendi lain.
+3. **Posisi dibaca dulu, baru bergerak.** Tombol membaca posisi sendi itu; kalau
+   servo tidak menjawab, **tidak ada perintah** yang dikirim (bukan menebak dari
+   posisi basi).
+4. **Gripper tidak ada di panel**, dan `move_joints`/`stop` sama-sama menolak
+   servo 10 -- dua lapis, karena aturan operator berlaku mutlak.
+
+| Verifikasi | Hasil |
+| --- | --- |
+| `pytest -q` | **445 passed** (442 + 3 test arm dashboard) |
+| `ruff check .` | bersih |
+| Guard `amr_core` bebas pyserial | hijau (pembuka port tetap di lapisan dashboard) |
+
+**Belum dijalankan di robot**: `--arm-live` belum pernah dipakai pada board ini;
+uji pertama lewat dashboard masih menunggu operator (dan gripper tetap
+dikecualikan).
 
 ---
 

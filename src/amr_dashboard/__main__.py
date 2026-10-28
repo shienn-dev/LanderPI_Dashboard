@@ -58,6 +58,18 @@ def main() -> None:
             "send motor commands. Without this flag the chassis stays offline."
         ),
     )
+    # Arm: same board as the chassis, separate switch. WITHOUT --arm-live the
+    # arm panel validates input and never transmits.
+    arm = parser.add_argument_group("Arm")
+    arm.add_argument(
+        "--arm-live",
+        action="store_true",
+        help=(
+            "MOVE THE REAL ARM: open the board's port for the bus servos and let "
+            "the Arm panel command joints 1-5. The gripper (servo 10) is never "
+            "commanded. Without this flag the arm panel only validates input."
+        ),
+    )
     args = parser.parse_args()
 
     config = LidarConfig.from_env()
@@ -74,6 +86,7 @@ def main() -> None:
         lidar_config=config,
         chassis_port=args.chassis_port,
         chassis_live=args.chassis_live,
+        arm_live=args.arm_live,
     )
 
 

@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from amr_core.robot.arm import OfflineArmAdapter
+from amr_core.robot.arm_bus import BusServoArmAdapter
 from amr_core.robot.camera import probe_camera
 from amr_core.robot.chassis import OfflineChassisAdapter
 from amr_core.robot.imu import YawIntegrator
@@ -29,6 +30,7 @@ from amr_core.robot.motion_guard import MotionGuard
 from amr_core.robot.odometry import NoOdometrySource
 from amr_core.robot.safety import EStopLatch, SpeedLimits
 from amr_core.robot.serial_chassis import DEFAULT_PORT, SerialChassisAdapter, SerialPort
+from amr_dashboard.arm_transport import open_arm_port
 from amr_dashboard.chassis_transport import open_serial_port
 
 _ODOMETRY_DETAIL = (
@@ -183,12 +185,15 @@ class RobotAdapters:
     """The process-wide set of robot adapters (offline / safe)."""
 
     chassis: ChassisAdapter
-    arm: OfflineArmAdapter
+    arm: OfflineArmAdapter | BusServoArmAdapter
     odometry: NoOdometrySource
     camera: CameraStatus
     estop: EStopLatch
     guard: MotionGuard | None = None
     live: bool = False
+    #: Whether the arm has a real transport. Separate from ``live`` (chassis):
+    #: the wheels can stay offline while the arm is live, and the other way round.
+    arm_live: bool = False
 
 
 def build_adapters(
@@ -197,6 +202,7 @@ def build_adapters(
     port: str = DEFAULT_PORT,
     port_factory: PortFactory = open_serial_port,
     settle_s: float = BOOT_WINDOW_S,
+    arm_live: bool = False,
 ) -> RobotAdapters:
     """Create a fresh adapter set.
 
@@ -226,9 +232,16 @@ def build_adapters(
     else:
         guard = None
         chassis = OfflineChassisAdapter(limits=SpeedLimits())
+    # The arm is a separate switch from the chassis: `--arm-live` gives the arm
+    # a real transport while the wheels stay offline (and the other way round).
+    # Built, never opened -- open() is the caller's job.
+    arm: OfflineArmAdapter | BusServoArmAdapter = (
+        BusServoArmAdapter(port=port, settle_s=settle_s) if arm_live else OfflineArmAdapter()
+    )
     return RobotAdapters(
         chassis=chassis,
-        arm=OfflineArmAdapter(),
+        arm=arm,
+        arm_live=arm_live,
         odometry=NoOdometrySource(_ODOMETRY_DETAIL),
         camera=probe_camera(),
         estop=EStopLatch(),
@@ -248,12 +261,56 @@ def get_adapters() -> RobotAdapters:
     return _adapters
 
 
-def configure(*, live: bool = False, port: str = DEFAULT_PORT) -> RobotAdapters:
+def configure(
+    *, live: bool = False, port: str = DEFAULT_PORT, arm_live: bool = False
+) -> RobotAdapters:
     """Install the adapter set the operator asked for (replaces any earlier one)."""
     global _adapters
     close_adapters()
-    _adapters = build_adapters(live=live, port=port)
+    _adapters = build_adapters(live=live, port=port, arm_live=arm_live)
     return _adapters
+
+
+def activate_live_arm(
+    port: str | None = None,
+    *,
+    port_factory=open_arm_port,
+) -> LiveActivation:
+    """Give the arm a real transport, on request, without restarting the server.
+
+    The arm hangs on the same board as the chassis but is a separate switch: the
+    wheels can stay offline while the arm is live. Opening the port moves
+    nothing -- the arm only moves when a step is submitted -- and a failure
+    keeps the offline adapter installed with the real reason attached.
+
+    Idempotent, like the chassis path.
+    """
+    target = port or default_port()
+    adapters = get_adapters()
+    if adapters.arm_live and adapters.arm.state() is ConnectionState.CONNECTED:
+        return LiveActivation(
+            ok=True,
+            state=ConnectionState.CONNECTED,
+            message=f"arm sudah LIVE di {target}; tidak ada port kedua yang dibuka.",
+        )
+
+    candidate = BusServoArmAdapter(port=target, settle_s=BOOT_WINDOW_S)
+    try:
+        handle = port_factory(target)
+    except Exception as exc:  # noqa: BLE001 - the reason is the report
+        return LiveActivation(
+            ok=False,
+            state=ConnectionState.DISCONNECTED,
+            message=f"{type(exc).__name__}: {exc}",
+        )
+    ok, reason = candidate.open(handle)
+    if not ok:
+        candidate.close()
+        return LiveActivation(ok=False, state=candidate.state(), message=reason)
+
+    adapters.arm = candidate
+    adapters.arm_live = True
+    return LiveActivation(ok=True, state=ConnectionState.CONNECTED, message=reason)
 
 
 def default_port() -> str:
@@ -358,10 +415,13 @@ def _close_chassis(adapters: RobotAdapters) -> None:
 
 
 def close_adapters() -> None:
-    """Close the live chassis port, if there is one."""
+    """Close the live chassis and arm ports, if there are any."""
     if _adapters is None:
         return
     _close_chassis(_adapters)
+    arm = _adapters.arm
+    if hasattr(arm, "close"):
+        arm.close()  # type: ignore[attr-defined]
 
 
 def open_live_chassis() -> ConnectionState:

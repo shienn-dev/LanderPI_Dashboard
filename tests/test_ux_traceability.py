@@ -174,10 +174,11 @@ def test_layout_signature_is_hashable_and_small() -> None:
     sig = dash.layout_signature(dash.DashboardState())
     assert isinstance(sig, tuple)
     assert hash(sig) is not None  # usable for equality comparison
-    # Two entries: the mode, and the chassis live/offline state. The second one
-    # is what makes the panel rebuild itself after the ONLINE button opens the
-    # port -- see tests/test_dashboard_chassis_online.py.
-    assert sig == ("competition", "offline")
+    # Three entries: the mode, the chassis live/offline state and the arm's.
+    # The last two are what make those panels rebuild themselves after a port is
+    # opened on request -- see tests/test_dashboard_chassis_online.py, and the
+    # arm switch is deliberately separate from the chassis one.
+    assert sig == ("competition", "offline", "arm-offline")
 
 
 # --------------------------------------------------------------------------- #

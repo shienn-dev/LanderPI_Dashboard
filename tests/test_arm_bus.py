@@ -10,10 +10,14 @@ from amr_core.robot.arm_bus import (
     MEASURED_LIMITS,
     MIN_DURATION_S,
     BusServoArmAdapter,
+    build_read_position_frame,
     build_set_position_frame,
     build_stop_frame,
+    decode_position,
+    parse_bus_servo_reply,
 )
 from amr_core.robot.interfaces import ArmCommand, ConnectionState
+from amr_core.robot.stm32_protocol import build_frame
 
 
 class RecordingPort:
@@ -158,6 +162,109 @@ def test_stop_lists_the_five_joints_and_nothing_else() -> None:
     assert payload[1] == len(ARM_JOINT_IDS)
     assert tuple(payload[2:]) == ARM_JOINT_IDS
     assert GRIPPER_ID not in payload[2:]
+
+
+class QueuedPort(RecordingPort):
+    """A port that answers reads with canned bytes, then stays silent."""
+
+    def __init__(self, replies: dict[int, bytes]) -> None:
+        super().__init__()
+        self.replies = replies
+        self.outstanding: bytes = b""
+        self.read_calls = 0
+
+    def reset_input_buffer(self) -> None:
+        return None
+
+    def write(self, data: bytes) -> int:
+        super().write(data)
+        # Answer the question that was just asked, the way the board does.
+        # A read frame is: aa 55 05 02 <opcode 05> <servo id> <crc> -- the id is
+        # the byte before the CRC, not the last byte (that trap cost one run).
+        servo_id = data[5] if len(data) >= 6 and data[4] == 0x05 else None
+        self.outstanding = self.replies.get(servo_id, b"")
+        return len(data)
+
+    def read(self, size: int = 64) -> bytes:
+        self.read_calls += 1
+        chunk, self.outstanding = self.outstanding[:size], self.outstanding[size:]
+        return chunk
+
+
+def _position_reply(servo_id: int, pulse: int) -> bytes:
+    """The exact reply the board sent on 2026-10-28 for servo 1: 491 -> eb 01."""
+    return build_frame(5, bytes((servo_id, 0x05, 0x00)) + pulse.to_bytes(2, "little", signed=True))
+
+
+def test_move_joints_moves_only_what_was_asked_for() -> None:
+    adapter = BusServoArmAdapter()
+    port = RecordingPort()
+    adapter.open(port)
+    outcome = adapter.move_joints({4: 120}, duration_s=0.8)
+    assert outcome.accepted is True and outcome.transmitted is True
+    duration_ms, count, moves = decode_frame(port.writes[-1])
+    assert duration_ms == 800
+    assert count == 1
+    assert moves == [(4, 120)]  # joint 4 only: the others are not touched
+
+
+def test_move_joints_clamps_and_refuses_the_gripper() -> None:
+    adapter = BusServoArmAdapter()
+    port = RecordingPort()
+    adapter.open(port)
+    assert adapter.move_joints({3: 5000}, duration_s=0.8).transmitted is True
+    _duration, _count, moves = decode_frame(port.writes[-1])
+    assert moves == [(3, MEASURED_LIMITS[3][1])]
+
+    before = len(port.writes)
+    grip = adapter.move_joints({10: 300}, duration_s=0.8)
+    assert grip.accepted is False and "gripper" in grip.reason
+    assert adapter.move_joints({9: 300}, duration_s=0.8).accepted is False
+    assert adapter.move_joints({}, duration_s=0.8).accepted is False
+    assert len(port.writes) == before  # nothing new reached the wire
+
+
+def test_the_stop_frame_can_not_reach_the_gripper_either() -> None:
+    adapter = BusServoArmAdapter()
+    port = RecordingPort()
+    adapter.open(port)
+    adapter.stop()
+    assert GRIPPER_ID not in port.writes[-1]
+
+
+def test_read_position_frame_is_the_one_the_board_answered() -> None:
+    # Measured capture: reading servo 1's position sent exactly these bytes.
+    assert build_read_position_frame(1).hex(" ") == "aa 55 05 02 05 01 6f"
+
+
+def test_a_position_reply_decodes_to_the_pulse() -> None:
+    assert decode_position(_position_reply(1, 491)) == 491
+    assert decode_position(_position_reply(5, 514)) == 514
+
+
+def test_a_bad_reply_is_rejected_rather_than_guessed() -> None:
+    good = _position_reply(1, 491)
+    assert decode_position(good[:-1] + bytes([(good[-1] + 1) & 0xFF])) is None  # bad crc
+    # status != 0 is a refusal: the vendor reads it as "no info"
+    refused = build_frame(5, bytes((1, 0x05, 0xFF, 0x65, 0x0B)))
+    assert parse_bus_servo_reply(refused) is not None
+    assert decode_position(refused) is None
+
+
+def test_read_positions_reports_a_silent_joint_as_none_not_as_a_guess() -> None:
+    adapter = BusServoArmAdapter()
+    port = QueuedPort({1: _position_reply(1, 491), 2: _position_reply(2, 705)})
+    assert adapter.open(port)[0] is True
+    positions = adapter.read_positions(timeout_s=0.05)
+    assert positions[1] == 491
+    assert positions[2] == 705
+    assert positions[3] is None and positions[4] is None and positions[5] is None
+    assert set(positions) == set(ARM_JOINT_IDS)
+
+
+def test_read_positions_without_a_port_reports_nothing_rather_than_zero() -> None:
+    adapter = BusServoArmAdapter()
+    assert adapter.read_positions() == dict.fromkeys(ARM_JOINT_IDS)
 
 
 def test_submit_rejects_non_integer_positions() -> None:

@@ -91,6 +91,9 @@ def odometry_panel(adapters: RobotAdapters) -> None:
 
 def arm_control_panel(adapters: RobotAdapters) -> None:
     arm = adapters.arm
+    if getattr(adapters, "arm_live", False):
+        _live_arm_panel(arm)
+        return
     with ui.card().classes("flex-1 min-w-[320px]"):
         with ui.row().classes("items-center gap-3"):
             ui.icon("precision_manufacturing")
@@ -124,3 +127,82 @@ def arm_control_panel(adapters: RobotAdapters) -> None:
             ui.label(
                 f"Last validated: {last.positions} @ {last.duration_s:.2f}s (NOT transmitted)"
             ).classes("text-xs text-gray-500 font-mono")
+
+
+def _live_arm_panel(arm) -> None:
+    """The arm with a real transport behind it: one joint, one small step.
+
+    Deliberately **not** hold-to-press. A chassis hold is continuous and stops
+    when the button is released; an arm move is a finite, slow motion to an
+    absolute pulse, so a held button would just re-issue the same move. One
+    press = one bounded step, which is also why every button here can be
+    explained in a sentence: 10 pulses, 0,8 s, clamped to that servo's own
+    measured limit, one joint at a time.
+
+    The gripper is absent by design (operator rule): ``move_joints`` refuses
+    servo 10, so there is no control to press even by mistake.
+    """
+    with ui.card().classes("flex-1 min-w-[320px]"):
+        with ui.row().classes("items-center gap-3"):
+            ui.icon("precision_manufacturing")
+            ui.label("Arm control (LIVE)").classes("text-sm text-gray-500 uppercase")
+            _state_badge(arm.state())
+        ui.label(
+            "Satu tekan = satu langkah kecil: 10 pulse dalam 0,8 s, dibatasi limit "
+            "terukur servo itu, satu sendi per perintah."
+        ).classes("text-xs text-gray-600")
+        ui.label(
+            "Gripper (servo 10) tidak ada di panel ini: aturan operator - jangan "
+            "disentuh, jangan diperintahkan."
+        ).classes("text-xs text-amber-700")
+
+        positions = ui.label("posisi  (belum dibaca)").classes(
+            "text-xs text-gray-500 font-mono"
+        )
+
+        def refresh() -> None:
+            values = arm.read_positions(timeout_s=0.15)
+            parts = [f"{sid}:{'-' if pulse is None else pulse}" for sid, pulse in values.items()]
+            positions.set_text("posisi  " + "  ".join(parts))
+
+        def nudge(servo_id: int, delta: int) -> None:
+            values = arm.read_positions(ids=(servo_id,), timeout_s=0.2)
+            current = values.get(servo_id)
+            if current is None:
+                ui.notify(
+                    f"servo {servo_id} tidak menjawab - tidak ada perintah yang dikirim",
+                    color="negative",
+                )
+                return
+            low, high = arm.limits[servo_id]
+            target = max(low, min(high, current + delta))
+            if target == current:
+                ui.notify(f"sendi {servo_id} sudah di batas {low}-{high}", color="warning")
+                return
+            outcome = arm.move_joints({servo_id: target}, duration_s=0.8)
+            ui.notify(
+                f"sendi {servo_id}: {current} -> {target} - {outcome.reason}",
+                color="positive" if outcome.transmitted else "negative",
+            )
+            refresh()
+
+        with ui.column().classes("gap-1"):
+            for servo_id in sorted(arm.limits):
+                low, high = arm.limits[servo_id]
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(f"sendi {servo_id}").classes("text-xs w-14")
+                    ui.label(f"{low}-{high}").classes("text-xs text-gray-500 w-20 font-mono")
+                    ui.button("-10", on_click=lambda sid=servo_id: nudge(sid, -10)).props(
+                        "outline dense"
+                    )
+                    ui.button("+10", on_click=lambda sid=servo_id: nudge(sid, +10)).props(
+                        "outline dense"
+                    )
+        with ui.row().classes("items-center gap-3"):
+            ui.button("Baca posisi", icon="refresh", on_click=refresh).props("outline dense")
+            ui.button(
+                "STOP",
+                icon="stop",
+                on_click=lambda: ui.notify(arm.stop().reason, color="warning"),
+            ).props("color=negative dense")
+        refresh()

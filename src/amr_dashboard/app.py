@@ -211,7 +211,11 @@ def layout_signature(state: DashboardState) -> tuple[str, ...]:
     refreshing the read-only regions.
     """
     adapters = robot_runtime.get_adapters()
-    return (state.mode, "live" if adapters.live else "offline")
+    return (
+        state.mode,
+        "live" if adapters.live else "offline",
+        "arm-live" if adapters.arm_live else "arm-offline",
+    )
 
 
 def _build_header(state: DashboardState) -> None:
@@ -655,6 +659,7 @@ def run(
     lidar_config: LidarConfig | None = None,
     chassis_port: str | None = None,
     chassis_live: bool = False,
+    arm_live: bool = False,
 ) -> None:
     """Launch the dashboard.
 
@@ -673,15 +678,29 @@ def run(
     # Remember the port even when the server starts offline: the panel's ONLINE
     # button opens that port on request and has no command line of its own.
     robot_runtime.set_default_port(chassis_port or "")
-    if chassis_live:
-        robot_runtime.configure(live=True, port=chassis_port or "")
-        state = robot_runtime.open_live_chassis()
-        print("=" * 72)
-        print("  AKTUASI NYATA - the dashboard will drive the real robot.")
-        print(f"  chassis port: {chassis_port}  state: {state.value}")
-        print("  Keep the physical E-stop within reach. The robot moves while a")
-        print("  direction button is held, and stops when it is released.")
-        print("=" * 72)
+    if chassis_live or arm_live:
+        # One adapter set, two independent switches: `--chassis-live` drives the
+        # wheels, `--arm-live` gives the arm a real transport. Either can be on
+        # without the other.
+        robot_runtime.configure(
+            live=chassis_live, port=chassis_port or "", arm_live=arm_live
+        )
+        if chassis_live:
+            state = robot_runtime.open_live_chassis()
+            print("=" * 72)
+            print("  AKTUASI NYATA - the dashboard will drive the real robot.")
+            print(f"  chassis port: {chassis_port}  state: {state.value}")
+            print("  Keep the physical E-stop within reach. The robot moves while a")
+            print("  direction button is held, and stops when it is released.")
+            print("=" * 72)
+        if arm_live:
+            activation = robot_runtime.activate_live_arm(port=chassis_port or None)
+            print("=" * 72)
+            print("  ARM LIVE - tombol di panel Arm akan MENGGERAKKAN sendi asli.")
+            print(f"  {activation.message}")
+            print("  Satu tekan = satu langkah 10 pulse / 0,8 s, dibatasi limit")
+            print("  terukur. Gripper (servo 10) tidak tersedia: aturan operator.")
+            print("=" * 72)
     try:
         ui.run(host=host, port=port, title="AMR LKS Dashboard", reload=reload, show=False)
     except OSError as exc:
