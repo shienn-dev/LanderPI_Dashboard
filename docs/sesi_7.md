@@ -206,9 +206,9 @@ scan yang sama.
 | `src/amr_dashboard/lidar_panel.py` | +124 / −31 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang dua kali: `<polygon>` segitiga → `<rect>` + chevron + label DEPAN → gambar robot `<g class="robot-marker">` berisi bodi + 4 roda + sensor hidung + hub, tanpa tulisan), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
 | `tests/test_lidar_dashboard.py` | +103 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_is_the_robot_and_carries_no_label()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 & 3 di dalam test (tanpa `<polygon>`, tanpa teks `DEPAN`, 4 roda) |
 | `tests/test_imu_heading.py` | +10 / −13 | `test_the_plot_draws_the_robot_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` membaca rotasi grup robot | test lama membaca `<polygon>` dan label `DEPAN` yang sudah tidak ada |
-| `docs/sesi_7.md` | +898 / −0 | dokumen ini | aturan log per sesi |
+| `docs/sesi_7.md` | +914 / −0 | dokumen ini | aturan log per sesi |
 
-Total: **+1135 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
+Total: **+1151 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
