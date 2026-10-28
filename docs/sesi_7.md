@@ -206,7 +206,10 @@ scan yang sama.
 | `src/amr_dashboard/lidar_panel.py` | +124 / −31 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang dua kali: `<polygon>` segitiga → `<rect>` + chevron + label DEPAN → gambar robot `<g class="robot-marker">` berisi bodi + 4 roda + sensor hidung + hub, tanpa tulisan), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
 | `tests/test_lidar_dashboard.py` | +103 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_is_the_robot_and_carries_no_label()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 & 3 di dalam test (tanpa `<polygon>`, tanpa teks `DEPAN`, 4 roda) |
 | `tests/test_imu_heading.py` | +10 / −13 | `test_the_plot_draws_the_robot_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` membaca rotasi grup robot | test lama membaca `<polygon>` dan label `DEPAN` yang sudah tidak ada |
-| `docs/sesi_7.md` | +960 / −0 | dokumen ini | aturan log per sesi |
+| `docs/sesi_7.md` | +1001 / −0 | dokumen ini | aturan log per sesi |
+| `src/amr_core/robot/arm_bus.py` (baru) | +212 / −0 | frame bus-servo, limit terukur sebagai clamp, gripper ditolak | §11.8 |
+| `src/amr_dashboard/arm_transport.py` (baru) | +25 / −0 | opener port arm di lapisan dashboard | §11.8 |
+| `tests/test_arm_bus.py` (baru) | +166 / −0 | 10 test protokol/keselamatan arm | §11.8 |
 
 Total: **+1197 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
@@ -924,6 +927,47 @@ langkah yang butuh password.
 Jalur tanpa ROS sudah terlihat: biner `hello_deptrum` (aarch64) + SDK, lalu
 pembaca frame via `ctypes`. Yang **belum** terverifikasi: apakah kamera benar-
 benar mengalirkan frame — itu menunggu aturan udev dipasang operator.
+
+
+### 11.8 Action group pabrik dibaca, dan adapter arm masuk repo
+
+**Action group (`.d6a`) ternyata SQLite kecil.** Kolomnya
+`Index, Time, Servo1..Servo6`; `Servo6` = gripper (id 10). Dibaca langsung dari
+`~/.hermes/cache/scratch/lander_asli/.../arm_pc/ActionGroups/`:
+
+| Berkas | Baris | Isi |
+| --- | --- | --- |
+| `garbage_pick.d6a` | 5 | 1000 ms `[500,500,125,165,500]` gripper 200 -> 1000 ms `[500,200,250,330,500]` -> 500 ms gripper **490** (menutup) -> 200 ms tahan -> 1000 ms `[500,520,50,280,500]` |
+| `camera_up.d6a` | 1 | 1500 ms `[500,720,210,220,500]` gripper 500 |
+
+Cara pabrik memutar ulang (`action_group_controller.py` + `bus_servo_control.py`):
+sendi 1-5 memakai `Time` sebagai durasi, sedangkan gripper memakai
+`abs(1000 - Time)` sebagai durasi **dan** nilainya dibalik (`1000 - Servo6`).
+Grade: TERVERIFIKASI (dibaca dari tabel dan kode vendor), belum dijalankan.
+
+**Adapter arm sekarang ada di repo**, menyusul aturan proyek yang sudah ada:
+
+| Berkas | +/− | Isi | Mengapa |
+| --- | --- | --- | --- |
+| `src/amr_core/robot/arm_bus.py` (baru) | +212 / −0 | `ARM_JOINT_IDS=(1..5)`, `GRIPPER_ID=10`, `MEASURED_LIMITS` (hasil ukur), `build_set_position_frame()`, `build_stop_frame()`, `BusServoArmAdapter` | satu tempat untuk frame bus-servo + pagar keselamatan |
+| `src/amr_dashboard/arm_transport.py` (baru) | +25 / −0 | `open_arm_port()` yang memakai opener chassis (baud 1 M, DTR/RTS diturunkan, cek pemegang port) | `amr_core.robot` dilarang impor pyserial (guard test) |
+| `tests/test_arm_bus.py` (baru) | +166 / −0 | 10 test: frame byte-identik vendor, clamp ke limit terukur, gripper ditolak, durasi < 0,5 s ditolak, tanpa port tidak mengirim, stop menyebut 5 sendi | mengunci protokol dan aturan gripper |
+
+Yang menarik dan dicatat: percobaan pertama kugagal oleh **test guard proyek
+sendiri** (`test_robot_core_modules_do_not_import_serial`) karena `arm_bus.py`
+mengimpor pyserial. Diperbaiki dengan pola yang sudah dipakai chassis: port
+disuntikkan dari lapisan dashboard. Jadi aturan lama itu bekerja sebagaimana
+mestinya.
+
+| Verifikasi | Hasil |
+| --- | --- |
+| `pytest -q` | **434 passed** (424 + 10 test arm) |
+| `ruff check .` | bersih |
+| Guard `test_robot_no_actuation.py` | hijau (inti bebas pyserial) |
+
+Belum terverifikasi di hardware: adapter ini **belum pernah mengirim satu byte**
+(port tidak pernah dibuka lewat adapter), dan frame `stop` (0x03) belum diuji di
+board.
 
 ---
 
