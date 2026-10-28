@@ -211,7 +211,7 @@ scan yang sama.
 | `src/amr_dashboard/arm_transport.py` (baru) | +25 / −0 | opener port arm di lapisan dashboard | §11.8 |
 | `tests/test_arm_bus.py` (baru) | +166 / −0 | 10 test protokol/keselamatan arm | §11.8 |
 
-Total: **+1197 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
+Total: **+1641 / −44** di 7 file (4 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
