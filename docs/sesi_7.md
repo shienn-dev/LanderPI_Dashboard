@@ -203,9 +203,9 @@ scan yang sama.
 | `src/amr_dashboard/lidar_panel.py` | +82 / −28 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang: `<rect>` chassis + `<polyline>` chevron + label DEPAN, menggantikan `<polygon>` segitiga), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
 | `tests/test_lidar_dashboard.py` | +59 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_points_up_and_is_not_a_triangle()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 di dalam test |
 | `tests/test_imu_heading.py` | +19 / −12 | `test_the_plot_draws_the_front_marker_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` + `_marker_label()` menggantikan `_marker_tip()` yang membaca `<polygon>` | test lama membaca segitiga yang sudah tidak ada |
-| `docs/sesi_7.md` | +389 / −0 | dokumen ini | aturan log per sesi |
+| `docs/sesi_7.md` | +430 / −0 | dokumen ini | aturan log per sesi |
 
-Total: **+549 / −40** di 4 file (3 di antaranya kode).
+Total: **+590 / −40** di 4 file (3 di antaranya kode).
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
