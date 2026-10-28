@@ -6,8 +6,10 @@ tidak ada") terjawab dengan pengukuran: frame sudut LiDAR di robot ini berputar
 sehingga seluruh plot ter-mirror. Setelah itu operator meminta dua hal lagi
 (ronde 2): DEPAN menghadap **atas**, dan penanda arah hadap jangan berbentuk
 segitiga. Keduanya dikerjakan, lalu di-commit dan di-push atas perintah
-operator. Yang belum: operator belum melihat sendiri plot baru itu di dashboard
-hidup. Tidak ada aktuasi sama sekali di sesi ini: tidak ada satu pun frame motor
+operator. Ronde 3 & 4 (permintaan operator: gambarkan robotnya, hapus tulisan DEPAN,
+lalu kecilkan supaya skala jaraknya jujur) sudah dikerjakan tetapi **belum
+di-commit** — menunggu keputusan operator. Yang belum:
+operator belum melihat sendiri plot baru itu di dashboard hidup. Tidak ada aktuasi sama sekali di sesi ini: tidak ada satu pun frame motor
 yang dikirim, `/dev/ttyACM0` tidak pernah dibuka, robot tidak bergerak. LiDAR
 hanya dibaca (read-only) di enam jendela pendek.**
 
@@ -41,7 +43,8 @@ Peta dokumen:
 | §7 | verifikasi | tidak |
 | §8 | yang BELUM terverifikasi | — |
 | §9 | langkah berikutnya | — |
-| §10 | ronde 2: depan ke atas, penanda baru, commit & push | tidak |
+| §10 | ronde 2-4: depan ke atas, penanda robot, skala | tidak |
+| §11 | arm: protokol pabrik + probe read-only | tidak |
 
 ---
 
@@ -200,12 +203,12 @@ scan yang sama.
 
 | File | +/− | Isi perubahan (nama fungsi/konstanta) | Mengapa |
 | --- | --- | --- | --- |
-| `src/amr_dashboard/lidar_panel.py` | +82 / −28 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang: `<rect>` chassis + `<polyline>` chevron + label DEPAN, menggantikan `<polygon>` segitiga), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
-| `tests/test_lidar_dashboard.py` | +59 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_points_up_and_is_not_a_triangle()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 di dalam test |
-| `tests/test_imu_heading.py` | +19 / −12 | `test_the_plot_draws_the_front_marker_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` + `_marker_label()` menggantikan `_marker_tip()` yang membaca `<polygon>` | test lama membaca segitiga yang sudah tidak ada |
-| `docs/sesi_7.md` | +430 / −0 | dokumen ini | aturan log per sesi |
+| `src/amr_dashboard/lidar_panel.py` | +124 / −31 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang dua kali: `<polygon>` segitiga → `<rect>` + chevron + label DEPAN → gambar robot `<g class="robot-marker">` berisi bodi + 4 roda + sensor hidung + hub, tanpa tulisan), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
+| `tests/test_lidar_dashboard.py` | +103 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_is_the_robot_and_carries_no_label()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 & 3 di dalam test (tanpa `<polygon>`, tanpa teks `DEPAN`, 4 roda) |
+| `tests/test_imu_heading.py` | +10 / −13 | `test_the_plot_draws_the_robot_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` membaca rotasi grup robot | test lama membaca `<polygon>` dan label `DEPAN` yang sudah tidak ada |
+| `docs/sesi_7.md` | +898 / −0 | dokumen ini | aturan log per sesi |
 
-Total: **+590 / −40** di 4 file (3 di antaranya kode).
+Total: **+1135 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
@@ -396,11 +399,485 @@ Aturan untuk sesi berikutnya: **hentikan dashboard dulu, baru jalankan probe**
 (`pkill -f run_dashboard.py`), atau jangan jalankan probe sama sekali selama
 operator memakai dashboard.
 
-Catatan penting yang ditemukan di sini: kode `lidar_panel.py` terakhir berubah
-**14:27:31**, sedangkan proses dashboard hidup sejak **14:22:17** -- jadi
+Catatan penting yang ditemukan di sini: saat itu kode `lidar_panel.py` terakhir
+berubah **14:27:31**, sedangkan proses dashboard hidup sejak **14:22:17** -- jadi
 dashboard yang sedang dilihat operator masih memuat gambar versi antara
 (cermin sudah dibalik, tetapi depan masih ke kanan dan penandanya masih
 segitiga). Perlu **restart dashboard** supaya tampilan ronde 2 muncul.
+
+
+### 10.2 Ronde 3 — "gambarkan robotnya", tanpa tulisan DEPAN
+
+Permintaan operator, persis:
+
+> "Gausah dikasi tulisan depan, Kalo kamu bisa gambarkan robotnya sih hebat yah.
+> Jadi ga kaya geometri jelek gitu."
+
+Yang berubah: penanda `<polygon>` segitiga (ronde 1) lalu `<rect>` + chevron +
+label `DEPAN` (ronde 2) diganti **gambar robot tampak atas** dalam satu grup
+`<g class="robot-marker">` yang diputar sebagai satu kesatuan: bodi chassis
+sudut tumpul 24 x 32 px, empat roda abu-abu di kedua sisi, satu tonjolan sensor
+di hidung (satu-satunya asimetri depan-belakang, jadi arah hadap terbaca tanpa
+kata), dan titik hub tempat LiDAR duduk. Label `DEPAN` di dalam plot dihapus;
+caption di luar plot yang menjelaskan.
+
+| Item | Hasil | Grade |
+| --- | --- | --- |
+| `pytest -q` | **423 passed** (13,2 s) | TERVERIFIKASI |
+| `ruff check .` | bersih | TERVERIFIKASI |
+| `"DEPAN" not in svg`, `"<polygon" not in svg` | test mengunci keduanya | TERVERIFIKASI |
+| Rasterisasi penanda (dari SVG yang benar-benar dirender) | bodi + 4 roda + sensor hidung + hub, simetris kiri-kanan | TERUKUR |
+
+Rasterisasi penanda hasil render (W = roda, `.` = bodi, `o` = sensor hidung,
+`+` = hub LiDAR; depan = atas):
+
+```
+                            
+             oo             
+            oooo            
+           oooooo           
+  .........oooooo.........  
+WWWW........oooo........WWWW
+WWWW.........oo.........WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+  ........................  
+  ........................  
+  ...........++...........  
+  ..........++++..........  
+  ..........++++..........  
+  ...........++...........  
+  ........................  
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+WWWW....................WWWW
+  ........................  
+  ........................  
+                            
+                            
+                            
+                            
+```
+
+Alat baru, dan penting: `~/AMRTestLander/tools/robot_marker_preview.py` membuat
+`tools/scans/robot_marker.html` **luring** dari berkas scan (tanpa membuka
+port), jadi tampilan bisa diperiksa sementara dashboard tetap memegang
+`/dev/ttyUSB0`. Halaman itu memuat plot 600 px, plot 300 px (ukuran dashboard),
+dan penanda yang sama pada offset 0/30/60 deg untuk membuktikan rotasinya rapi.
+
+Status ronde 3: **belum di-commit**; menunggu keputusan operator.
+
+
+### 10.3 Ronde 4 — robot digambar sesuai ukuran, bukan simbol
+
+Kata operator, persis:
+
+> "Buat lebih kecil, ini tuh kesannya kayak tembok dan robot berdekatan. Padahal
+> aslinya 1 meter lebih"
+
+Ini bukan soal selera: penanda 32 px di plot 300 px membuat dinding 1,17 m
+terlihat menempel. Angkanya jelas di plot default (rentang 4 m, radius 142 px =
+35,5 px per meter):
+
+| Besaran | Sebelum | Sesudah |
+| --- | --- | --- |
+| Panjang bodi di layar | 32 px (= 0,90 m ruang nyata) | **12,4 px** (= 0,35 m) |
+| Lebar bodi | 24 px (= 0,68 m) | **9,2 px** (= 0,26 m) |
+| Hidung robot dari pusat | 16 px | **6,2 px** |
+| Celah hidung ke dinding 1,17 m (41,7 px) | 25,7 px | **35,5 px** |
+| Skala ikut rentang tampil? | tidak (angka px tetap) | **ya** (`px_per_mm` dari plot) |
+
+Perubahan teknis: konstanta baru `ROBOT_FOOTPRINT_MM = (260,0, 350,0)`
+(lebar x panjang, dalam mm) dan `_robot_front_marker()` sekarang menerima
+`px_per_mm` dari `render_scan_svg()` (`radius / max_range_mm`), lalu menghitung
+setiap ukuran sebagai milimeter x `px_per_mm`. Karena itu robot **ikut mengecil
+dan membesar bersama rentang tampil**, jadi gambarnya tetap jujur di rentang
+berapapun.
+
+Catatan kejujuran: `ROBOT_FOOTPRINT_MM` masih **nominal** -- chassis unit sekolah
+ini belum pernah diukur dengan meteran. Ganti dengan angka hasil ukur begitu ada
+meteran; tidak ada bagian lain yang perlu diubah.
+
+Verifikasi ronde 4:
+
+| Item | Hasil | Grade |
+| --- | --- | --- |
+| `pytest -q` | **424 passed** (13,3 s); +1 test skala | TERVERIFIKASI |
+| `ruff check .` | bersih | TERVERIFIKASI |
+| Test skala | bodi = `ROBOT_FOOTPRINT_MM` x `px_per_mm` (toleransi 0,05 px), dan panjangnya **dua kali** saat rentang tampil dijadikan separuh | TERVERIFIKASI |
+| Rasterisasi penanda hasil render (300 px dan 600 px) | bodi + 4 roda + sensor hidung + hub, simetris | TERUKUR |
+
+Penanda pada plot 600 px (W = roda, `.` = bodi, `o` = sensor hidung,
+`+` = hub; depan = atas):
+
+```
+                         
+                         
+          oooo           
+         oooooo          
+   ......oooooo.......   
+  WW.................WW  
+  WW.................WW  
+  WW.................WW  
+   ...................   
+   ........++.........   
+   .......++++........   
+   ...................   
+   ...................   
+  WW.................WW  
+  WW.................WW  
+  WW.................WW  
+   ...................   
+                         
+                         
+                         
+```
+
+Penanda pada plot 300 px (ukuran sebenarnya di dashboard):
+
+```
+              
+     oooo     
+  WW.......WW 
+  WW.......WW 
+   ...++....  
+   .........  
+  WW.......WW 
+  WW.......WW 
+              
+              
+```
+
+Alatnya: `~/AMRTestLander/tools/robot_marker_preview.py` (luring, tanpa port).
+
+
+---
+
+## 11. Arm — protokol pabrik dibaca, probe read-only disiapkan (tanpa aktuasi)
+
+Keputusan operator: **arm dulu**, kamera sesudahnya. Alasannya berubah begitu
+paket pabrik diperiksa: SDK Python resmi untuk board yang sama ternyata sudah
+ada di disk, sedangkan SDK kamera tidak ada dan menuntut `sudo` (lihat
+`~/AMRTestLander/tools/camera_sudo_todo.md`, di luar repo).
+
+Sumber yang dibaca (bukan ditebak): `~/LanderAsli(Beta).zip`, 261 entri, 1,0 MB,
+diekstrak ke `~/.hermes/cache/scratch/lander_asli/` (di luar repo).
+
+| Berkas / temuan | Isi | Grade |
+| --- | --- | --- |
+| `arm_pc/ros_robot_controller_sdk.py` | `buf_write` = `AA 55 <func> <len> <data> crc8(buf[2:])`; `PACKET_FUNC_BUS_SERVO = 5`; opcode baca `0x05` posisi, `0x07` vin, `0x09` suhu, `0x0D` status torque, `0x12` id, `0x32` angle limit; opcode tulis `set_position`, `enable_torque`, `set_offset`, `stop`, `set_id` | SOURCE-ONLY |
+| `arm_pc/main.py` | 6 slider memetakan ke servo id **1, 2, 3, 4, 5, 10** (slider 6 -> id 10) | SOURCE-ONLY |
+| `arm_pc/bus_servo_control.py` | `set_position(duration, [[id, pos]])`, posisi = pulse 0..1000, durasi ms/1000; **`if servo_id == 10: position = 1000 - position`** -> id 10 dibalik; `unloadBusServo()` = `enable_torque(id, 1)` (1 = lepas torsi, bukan mengunci) | SOURCE-ONLY |
+| `arm_pc/action_group_controller.py` | berkas `.d6a` = SQLite, tabel `ActionGroup`, tiap baris = durasi_ms + 6 pulse; dijalankan dengan set tiap servo lalu `sleep(durasi)` | SOURCE-ONLY |
+| `arm_pc/ActionGroups/` | 7 action group, termasuk `garbage_pick.d6a`, `garbage_pick_init.d6a`, `camera_up.d6a` | TERVERIFIKASI (ada) |
+
+Kecocokan transport dengan repo ini, diuji **luring tanpa membuka port**: modul
+SDK vendor dimuat sebagai modul Python lalu `buf_write`-nya direkonstruksi
+persis, dibandingkan byte demi byte dengan `build_frame()` di
+`src/amr_core/robot/stm32_protocol.py`.
+
+| Item | Hasil | Grade |
+| --- | --- | --- |
+| `crc8` repo vs `checksum_crc8` vendor atas 100 payload acak | **identik, 0 beda** | TERVERIFIKASI |
+| 18 frame baca (6 opcode x servo id 1/5/10) vs frame vendor | **18/18 byte-identik** | TERVERIFIKASI |
+| Contoh | baca posisi servo 1 = `aa 55 05 02 05 01 6f` | TERVERIFIKASI |
+
+Artinya: transport arm tidak menambah ketidakpastian -- board, framing, dan CRC
+sudah dipakai sehari-hari untuk motor. Yang masih SOURCE-ONLY hanyalah arti
+opcode dan pemetaan joint, dan itu yang harus diukur.
+
+Alat baru: `~/AMRTestLander/tools/arm_probe.py` (di luar repo).
+
+| Sifat | Isi |
+| --- | --- |
+| Read-only secara struktural | opcode yang boleh dikirim hanya yang ada di `READ_COMMANDS`; guard menolak opcode lain; tidak ada `set_position` / `enable_torque` / `stop` di berkas itu |
+| Wajib `--confirm` | tanpa itu keluar dengan kode 2 dan tidak menyentuh port |
+| Port eksklusif | `serial.Serial(..., exclusive=True)` -> gagal bersih kalau dashboard memegang `/dev/ttyACM0` |
+| `--settle 3.0` | jendela boot 2,36 s setelah open (terukur di sesi 6) |
+| Nol balasan | dilaporkan apa adanya + saran periksa daya/kabel, **bukan** mengganti opcode sampai "kebetulan cocok" |
+
+Yang **belum** dilakukan: `/dev/ttyACM0` belum pernah dibuka di sesi ini, tidak
+ada satu byte pun dikirim ke board, tidak ada aktuasi, dan probe belum
+dijalankan. Langkah berikutnya butuh: arm diberi daya, area arm bebas, dan
+dashboard berhenti (port satu pemilik).
+
+Bukti bahwa probe belum pernah jalan: keluaran satu-satunya darinya adalah
+`--help` dan penolakan tanpa `--confirm` (exit 2).
+
+
+### 11.1 Cara mengetesnya, dan berkas instruksi di luar repo
+
+Permintaan operator: *"kamu calo nyuruh aku jalanin command tertentu tulis di
+file aja, jangan di chat ... aku gabisa copas soalnya"*. Mulai sekarang setiap
+urutan perintah ditulis ke berkas di luar repo (`.txt`), dan di chat hanya
+disebut path-nya.
+
+| Berkas | Isi |
+| --- | --- |
+| `~/AMRTestLander/tools/ARM_TEST.txt` | prosedur uji arm: prasyarat, cek port, `--listen` dulu, probe read-only, cara membaca tabel, pohon diagnosis kalau tidak ada balasan, larangan sesi ini, dan rancangan tahap uji gerak (belum dijalankan) |
+| `~/AMRTestLander/tools/CAMERA_SUDO.txt` | semua perintah yang butuh password sudo untuk jalur kamera (bekas `camera_sudo_todo.md`) |
+
+Perubahan pada `arm_probe.py` setelah itu:
+
+| Item | Isi |
+| --- | --- |
+| Mode `--listen SECONDS` | hanya membuka port dan melaporkan frame yang masuk; **tidak mengirim satu byte pun** -- uji "board hidup?" tanpa menulis ke board |
+| Transkrip otomatis | setiap eksekusi menulis `~/AMRTestLander/tools/logs/arm_probe_<cap waktu>.txt`; bukti tidak lagi hanya ada di layar terminal |
+| Penamaan fungsi | `PACKET_FUNC_NAMES` untuk menerjemahkan fungsi frame (SYS/LED/BUZZER/MOTOR/PWM_SERVO/BUS_SERVO/KEY/IMU/...) di mode listen |
+
+Terverifikasi tanpa port: `py_compile` bersih, dan tanpa `--confirm` skrip
+keluar dengan kode 2 serta tidak menyentuh port.
+
+
+### 11.2 Probe dijalankan — 6/6 servo menjawab, limit tiap joint terukur
+
+Operator menjalankan sendiri (dan Hermes menjalankan ulang setelah perbaikan).
+Dashboard dimatikan lebih dulu; /dev/ttyACM0 bebas di kedua kali.
+
+**Sesi `--listen 5` (operator, 15:32):** 407 frame tanpa mengirim satu byte pun
+= **IMU 400 frame (~80 Hz)** + **SYS 7 frame (~1,4/s)**, `crc gagal 0`. Board
+hidup, dan CRC/framing kita benar di board ini.
+
+**Sesi `--confirm` (15:36-15:37):**
+
+| id | balas id | posisi | limit | vin mV | temp C | torque |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 491 | 50-950 | 8051 | 31 | 0 |
+| 2 | 2 | 705 | 40-960 | 8002 | 28 | 0 |
+| 3 | 3 | 40 | 0-900 | 8009 | 27 | 0 |
+| 4 | 4 | 96 | 70-970 | 8022 | 27 | 0 |
+| 5 | 5 | 514 | 50-950 | 8051 | 28 | 0 |
+| 10 | 10 | 205 | 200-600 | 7969 | 28 | 0 |
+
+**TERUKUR:** arm ini punya **6 joint, id 1, 2, 3, 4, 5, 10** (cocok dengan
+pemetaan GUI pabrik), rail daya servo hidup (~8,0 V di semua servo), suhu
+27-31 C, dan **rentang aman tiap servo** kini punya angkanya -- sebelumnya
+hanya dari dokumen. id 10 paling sempit (200-600), konsisten dengan grip
+berjari pendek. Arti status torque `0` **belum diketahui** dan tidak diklaim.
+
+**Dua bug di probe sendiri, keduanya ketemu hari ini (ditulis sebagai GAGAL):**
+
+| Trial | Gejala | Sebab | Perbaikan |
+| --- | --- | --- | --- |
+| probe pertama | `TypeError: unsupported format string passed to NoneType` dan tabel kosong | `row["id"]` dipakai untuk dua arti (id yang ditanya vs id yang menjawab), lalu ditimpa hasil bacaan | kunci dipisah: `asked` vs `id` |
+| probe pertama | dilaporkan **0/6 menjawab** padahal 36 frame func 5 masuk (satu per pertanyaan) | bit status dibaca terbalik; vendor memakai `if success == 0: return info`, jadi **0 = berhasil** | `if success != 0: return None` |
+
+Pelajaran yang dicatat: "0/6 menjawab" yang datang bersama 36 balasan func 5
+berarti **dekoder** yang salah, bukan arm-nya. Yang membedakan cuma menghitung
+frame masuk -- tanpa itu, hasilnya akan dilaporkan sebagai "arm tidak terhubung".
+
+Keluaran mentah yang akhirnya membuka keduanya (satu query per baris,
+payload setelah `AA 55 05 <len>`):
+
+```
+id=1 position 0x05 -> 01 05 00 eb 01         posisi = 0x01EB = 491
+id=1 vin      0x07 -> 01 07 00 75 1f         vin    = 0x1F75 = 8053 mV
+id=1 temp     0x09 -> 01 09 00 1f            suhu   = 31 C
+id=1 torque   0x0D -> 01 0d 00 00            status = 0
+id=1 id       0x12 -> 01 12 00 01            balas id = 1
+id=1 limit    0x32 -> 01 32 00 32 00 b6 03   limit  = 50 .. 950
+id=254 id     0x12 -> fe 12 ff 65            broadcast: status 0xFF -> ditolak
+```
+
+Perbaikan lain di `arm_probe.py` pada sesi yang sama: mode `--listen` mencetak
+**semua frame selain IMU** apa adanya (sebelumnya hanya 40 frame pertama, yang
+selalu keburu dihabiskan IMU sehingga frame SYS tidak pernah terlihat), dan
+setiap eksekusi menulis transkrip ke `tools/logs/`.
+
+**Aturan operator yang dicatat (keras):** saat menggerakkan arm, **jangan sentuh
+gripper** dan jangan perintahkan servo id 10. Membaca id 10 tidak
+menggerakkannya; yang dilarang adalah memerintahkannya. Aturan ini ditulis di
+`tools/ARM_TEST.txt`, di bagian "Tahap berikutnya", dan di skill
+`amr-stm32-port-boot-window`.
+
+Tahap berikutnya (uji gerak) **belum** dijalankan dan tetap butuh izin
+terpisah: satu joint, satu perintah, langkah kecil di dalam limit terukur,
+durasi lambat, arm di udara.
+
+
+### 11.3 Alat tahap-2 (gerak satu joint) sudah siap, belum dijalankan
+
+`~/AMRTestLander/tools/arm_move_test.py` -- skrip pertama di proyek ini yang
+*bisa* menggerakkan arm. Dibuat sengaja membosankan, dan pagarnya berlapis:
+
+| Pagar | Isi | Hasil uji |
+| --- | --- | --- |
+| Gripper | id 10 ditolak sebelum apa pun terjadi (aturan operator) | exit 3, pesan eksplisit (terverifikasi) |
+| Limit | target harus di dalam limit terukur servo; limit dibaca ulang dari servo saat itu | target 999 di id 5 ditolak (terverifikasi) |
+| Langkah | `|target - posisi sekarang| <= --max-step` (default 25 pulse) | target 700 dari 514 (+186) ditolak (terverifikasi) |
+| Kecepatan | durasi minimum 500 ms | durasi 200 ms ditolak (terverifikasi) |
+| Konfirmasi | kata `MOVE` harus diketik; tanpa `--confirm` hanya mencetak frame dan keluar | exit 2 (terverifikasi) |
+| Satu pemilik port | `exclusive=True` | gagal bersih kalau dashboard memegang port |
+| Bukti | frame dicetak + transkrip ke `tools/logs/`, posisi dibaca ulang setelah gerak | -- |
+
+Frame geraknya diuji luring terhadap rekonstruksi `bus_servo_set_position`
+milik SDK vendor: **3/3 kasus byte-identik**, mis. id 5 +16 pulse dalam 2000 ms
+= `aa 55 05 07 01 d0 07 01 05 12 02 ...`. Frame stop (`0x03`) juga sudah ada.
+
+Terverifikasi tanpa gerak: kelima penolakan di atas, dan satu pembacaan nyata
+(id 5 = 514, limit 50-950) yang membuktikan jalur baca di skrip ini hidup.
+
+**Belum dijalankan**: belum ada satu byte gerak yang pernah dikirim ke arm di
+sesi ini. Uji pertama yang diusulkan: id 5, target 530 (langkah +16), durasi
+2000 ms, arm di udara, tangan di luar jangkauan, gripper tidak disentuh.
+
+
+### 11.4 Uji gerak pertama — satu joint, +16 pulse, BERHASIL
+
+Izin operator: *"Uji saja, asal jangan sentuh griper"*. Dashboard mati, port
+bebas, id 5 dibaca dulu (514, limit 50-950 dari servo sendiri).
+
+| Item | Nilai | Grade |
+| --- | --- | --- |
+| Frame yang dikirim | `aa 55 05 07 01 d0 07 01 05 12 02 05` (id 5, pulse 530, durasi 2000 ms) | TERVERIFIKASI (byte-identik dgn SDK vendor) |
+| Posisi sebelum | 514 | TERUKUR |
+| Posisi diminta | 530 (+16 pulse) | — |
+| Posisi setelah dibaca ulang | **525** | TERUKUR |
+| Selisih terhadap permintaan | −5 pulse (~0,5 % dari rentang 0-1000) | TERUKUR |
+| Gripper | **tidak diperintahkan, tidak disentuh**; id 10 ditolak oleh skrip sebelum apa pun terjadi | TERVERIFIKASI |
+| Kata `MOVE` | diketik Hermes atas persetujuan operator di sesi (operator tidak bisa mengetik dari chat) | — |
+| Frame diterima saat sesi | 11, dengan **1 CRC gagal** (balasan yang dipakai lolos CRC; dicatat apa adanya) | TERUKUR |
+
+Catatan: servo **menahan** posisi barunya setelah gerak (tidak ada perintah
+pelepas torsi yang dikirim), jadi arm tidak menjadi lemas. Yang **belum**
+diketahui dan tidak diklaim: id 5 itu sendi yang mana secara fisik -- hanya
+operator yang melihatnya yang bisa memetakan, dan itu langkah berikutnya.
+
+
+#### 11.4.1 Ulangan dengan langkah lebih besar — dan dua hal yang muncul
+
+Operator: *"Ulang, ga keliatan samsek"* (+16 pulse memang terlalu kecil untuk
+mata: 11 pulse nyata ~ 3 derajat). Ulangan: id 5, 526 -> 645 (+119 pulse,
+2500 ms, `--max-step 150`).
+
+| Item | Nilai | Grade |
+| --- | --- | --- |
+| Frame | `aa 55 05 07 01 c4 09 01 05 85 02 8d` | TERVERIFIKASI |
+| Posisi sebelum / diminta / sesudah | 526 / 645 / **638** | TERUKUR |
+| Langkah nyata | +112 pulse (~11 % dari rentang 0-1000) | TERUKUR |
+| CRC gagal | 2 dari 12 frame diterima (ulangan pertama: 1 dari 11) | TERUKUR |
+| Gripper | tetap tidak diperintahkan dan tidak disentuh | TERVERIFIKASI |
+
+Dua hal yang **belum** dijelaskan dan tidak diklaim:
+
+1. **Apakah mekaniknya ikut bergerak.** Servo melaporkan posisinya berubah,
+   tetapi laporan itu hanya membuktikan encoder di dalam servo. Kalau sendi
+   fisiknya tidak terlihat bergerak pada langkah 112 pulse, kandidatnya: horn/
+   kopel servo lepas, atau sendi itu memang berputar di sumbu yang sulit dilihat.
+2. **Dua joint berubah tanpa perintah.** Pembacaan ulang seluruh id sesudahnya:
+   id 1 491 -> **457** (-34), id 4 96 -> **113** (+17), id 2 +3, id 3 tetap 40.
+   Penyebabnya belum diketahui: bisa operator menyentuhnya, bisa sag di bawah
+   gravitasi. Tidak ada perintah yang dikirim untuk id 1/2/3/4 di sesi ini.
+
+
+### 11.5 Manual pabrik: peta id -> sendi (menjelaskan kenapa gerakan tak terlihat)
+
+Operator menunjuk berkasnya: `~/dokumentasi_lander/1. Tutorials/9. Robotic Arm
+Control/9. Robotic Arm Control.pdf` (90 hal.). Teksnya diekstrak dengan
+`pypdfium2` (dipasang ke venv, tanpa sudo); halaman gambar dirender ke PNG untuk
+mata operator, karena **Hermes tidak bisa melihat gambar** (modelnya teks).
+
+Kutipan langsung, hal. 27:
+
+> "No. 1 is the pan-tilt servo, No. 2, 3, and 4 are the robotic arm joint
+> servos, No. 5 is the wrist servo, and No. 10 is the claw servo. When the
+> robotic arm is in use, a total of 6 servos are controlled."
+
+| id | fungsi menurut manual | Grade |
+| --- | --- | --- |
+| 1 | servo pan-tilt | SOURCE-ONLY |
+| 2, 3, 4 | sendi lengan | SOURCE-ONLY |
+| 5 | **wrist** (pergelangan) | SOURCE-ONLY |
+| 10 | **claw / gripper** | SOURCE-ONLY |
+
+Konsekuensi langsung: uji gerak kita memakai **id 5 = wrist**. Pergelangan yang
+berputar ~112 pulse memang kandidat kuat untuk "tidak terlihat dari tempat
+operator berdiri" -- jadi pengamatan operator dan manual saling mendukung, dan
+hipotesis "kopel servo lepas" belum perlu dipakai.
+
+Catatan manual lain yang berguna:
+
+- Arm = 6-DOF, 6 x servo **HX-06L** (hal. 25). Sudut netral (hal. 28-29): servo
+  1-5 sejajar horizontal/vertikal terhadap chassis, dan **gripper terbuka 2-3 cm**.
+  Posisi terukur arm kita (id 3 = 40, di ujung bawah limit 0-900) menunjukkan
+  arm **tidak** dalam posisi netral.
+- Hal. 32 menyebut servo 3 pernah punya deviasi -18 yang dikoreksi lewat software
+  host (GUI `arm_pc/`) -- jadi deviasi tersimpan per servo dan bisa menjelaskan
+  posisi yang tampak "melenceng" tanpa bug.
+- Dua pernyataan pabrik yang **saling bertentangan** dan belum diselesaikan:
+  hal. 25 bilang "2 for the pan-tilt unit, 2 for the main body, and 1 for the
+  wrist" (kalau ditambah claw = 6, berarti pan-tilt 2 servo), sedangkan hal. 27
+  hanya menyebut 1 servo pan-tilt. Yang terukur: bus menjawab tepat 6 id
+  (1,2,3,4,5,10), jadi jumlahnya 6 -- pembagian fungsinya yang belum pasti.
+- User Manual hal. 4 menulis dua kabel servo 3-pin dari pan-tilt masuk ke **port
+  servo STM32** (PWM, fungsi 4), bukan ke bus. Artinya unit pan-tilt itu
+  kemungkinan bukan bagian dari 6 bus servo di atas. Belum kami verifikasi di
+  robot ini; operator yang bisa melihat langsung.
+- Arm manual hal. 24 menyebut Aurora930 dipakai untuk hand-tracking, sortir balok
+  warna, line-following + buang halangan, klasifikasi sampah, dan transport
+  point-to-point. Jadi **kamera dan arm saling terkait** -- prioritas
+  arm-dulu/kamera-kemudian bukan dua jalur yang benar-benar terpisah.
+
+Halaman yang dirender untuk operator (Hermes tidak bisa melihatnya):
+`~/AMRTestLander/tools/manual_pages/arm_hal27.png` (penomoran servo),
+`arm_hal28.png` (kriteria netral), `arm_hal1.png` (foto/daftar produk),
+`landerpi_hal1..6.png` (ikhtisar produk + wiring).
+
+
+### 11.6 Keputusan operator: pemetaan sudah diketahui, kartu SD asli sudah ter-flash
+
+Catatan commit (diminta operator: *"Commit aja kenapa nunggu lama"*):
+
+| Commit | Isi |
+| --- | --- |
+| `f9d59dd` | fix: draw the LiDAR plot front-up and stop mirroring the room |
+| `83929cd` | fix: draw the robot itself, to scale, as the LiDAR plot's facing marker |
+| (commit dokumen ini) | docs: log session 7 |
+
+Operator: *"sebenarnya sih aku udh tau ya pemetaannya. Soalnya ini kan sebenarnya
+ganti SD card aja. Aslinya udh ada softwarenya sendiri dan aku udh pernah nyoba.
+Tapi kalo kamu butuh makesure bilang aja nanti aku jadi pengamat untukmu."*
+
+Dua hal yang berubah karenanya:
+
+1. **Pemetaan id -> sendi naik dari SOURCE-ONLY (manual) menjadi "operator, dari
+   software pabrik".** Uji gerak 4x untuk memetakan id 1-4 tidak lagi wajib; ia
+   jadi opsi kalau Hermes butuh bukti mata sendiri. Prosedurnya (id per id,
+   langkah kecil, id 10 dikecualikan, operator menyebut sendinya) sudah ditulis
+   di `tools/ARM_TEST.txt`.
+2. **Kartu SD asli pabrik adalah sumber daya yang belum dimanfaatkan.** Image itu
+   pernah dipakai dan berisi software yang jalan. Membacanya (read-only) bisa
+   menjawab hal-hal yang sampai sekarang jadi penghalang, terutama: apakah SDK
+   Deptrum/Aurora930 sudah ada di sana (kalau ya, jalur kamera tidak perlu unduh
+   tarball), konfigurasi/deviasi servo versi pabrik, dan action group yang
+   benar-benar dipakai.
+
+Prosedur membacanya -- termasuk peringatan read-only dan bagian yang butuh
+password -- ditulis di `~/AMRTestLander/tools/SDCARD_INSPECT.txt`.
+
+**Koreksi dari operator:** kartu SD aslinya **sudah ter-flash** (isinya sudah
+ditimpa image sendiri), jadi jalur "colok kartunya" tertutup. Yang tersisa:
+operator punya **backup seluruh isinya** sebagai berkas, tetapi tidak punya
+kartu SD kosong untuk menampung hasil restore. Catatan penting: berkas backup
+itu **tidak perlu kartu SD dan tidak perlu di-restore** untuk diperiksa -- ia
+bisa dibaca di tempat, read-only (pindai string tanpa sudo, atau loop-mount
+read-only yang butuh password). Itu jalur yang ditawarkan berikutnya, menunggu
+lokasi dan format berkas backup-nya dari operator.
 
 ---
 
@@ -415,6 +892,13 @@ segitiga). Perlu **restart dashboard** supaya tampilan ronde 2 muncul.
 
 # bukti visual sebelum/sesudah perbaikan cermin (satu scan, dua gambar)
 ~/AMRTestLander/.venv/bin/python ~/AMRTestLander/tools/lidar_plot_preview.py --seconds 10
+
+# probe arm READ-ONLY (butuh --confirm, port harus bebas)
+~/AMRTestLander/.venv/bin/python ~/AMRTestLander/tools/arm_probe.py --confirm
+
+# penanda robot: pratinjau LURING dari berkas scan (tidak membuka port)
+~/AMRTestLander/.venv/bin/python ~/AMRTestLander/tools/robot_marker_preview.py \
+    --scan ~/AMRTestLander/tools/scans/scan_C_botol_kanan.txt
 
 # peta ASCII tampak atas dari data scan mentah, memakai konversi panel sendiri
 ~/AMRTestLander/.venv/bin/python ~/.hermes/cache/scratch/ascii_map.py \
