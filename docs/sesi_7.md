@@ -206,9 +206,9 @@ scan yang sama.
 | `src/amr_dashboard/lidar_panel.py` | +124 / −31 | `LIDAR_ANGLE_CLOCKWISE` (baru), `_screen_angle_deg()` (baru, `90 - angle`), `render_scan_svg()` (memakai konversi itu; docstring), `_robot_front_marker()` (ditulis ulang dua kali: `<polygon>` segitiga → `<rect>` + chevron + label DEPAN → gambar robot `<g class="robot-marker">` berisi bodi + 4 roda + sensor hidung + hub, tanpa tulisan), dua caption operator | (ronde 1) plot ter-mirror karena frame searah jarum jam digambar apa adanya; (ronde 2) permintaan operator: depan ke atas, penandanya jangan segitiga |
 | `tests/test_lidar_dashboard.py` | +103 / −0 | `_point_at()`, `_data_dots()` (baru), `test_the_plot_puts_the_front_up_and_the_robots_left_on_the_left()`, `test_the_front_marker_is_the_robot_and_carries_no_label()` | mengunci kesimpulan §3.2 dan permintaan ronde 2 & 3 di dalam test (tanpa `<polygon>`, tanpa teks `DEPAN`, 4 roda) |
 | `tests/test_imu_heading.py` | +10 / −13 | `test_the_plot_draws_the_robot_at_the_measured_offset()` menyusul penanda baru; helper `_marker_rotation()` membaca rotasi grup robot | test lama membaca `<polygon>` dan label `DEPAN` yang sudah tidak ada |
-| `docs/sesi_7.md` | +914 / −0 | dokumen ini | aturan log per sesi |
+| `docs/sesi_7.md` | +960 / −0 | dokumen ini | aturan log per sesi |
 
-Total: **+1151 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
+Total: **+1197 / −44** di 4 file (3 di antaranya kode), kumulatif sejak HEAD `823d2fb`.
 
 File bantu di luar repo (tidak di-commit, sengaja):
 
@@ -878,6 +878,52 @@ itu **tidak perlu kartu SD dan tidak perlu di-restore** untuk diperiksa -- ia
 bisa dibaca di tempat, read-only (pindai string tanpa sudo, atau loop-mount
 read-only yang butuh password). Itu jalur yang ditawarkan berikutnya, menunggu
 lokasi dan format berkas backup-nya dari operator.
+
+
+### 11.7 Paket kamera dari Drive: manual yang "hilang" ternyata ada, plus SDK aarch64
+
+Operator menyalin satu zip dari Drive: `~/dokumentasi_lander/drive-download-20261028T084843Z-1-001.zip`.
+Zip itu belum selesai saat pertama kuperiksa (`BadZipFile`; ditulis proses node,
+bertambah ~2,5 MB/s), jadi daftar isinya kuwalik dulu lewat pembacaan header
+sekuensial. Setelah unduhannya selesai: **1064 MB, 21 entri, 1,14 GB setelah
+dibuka**.
+
+| Isi zip | Ukuran | Berguna untuk kita? |
+| --- | --- | --- |
+| `1 Depth Camera Overview/1 Deptrum® Aurora 930 Depth Camera Overview.pdf` | 0,33 MB | **ya** — manual depth camera yang operator kira tidak ada |
+| `2 .../ROS1 .../1 Depth Camera Setup and Usage.pdf` + paket x86_64 | 25,4 MB | tidak langsung (jalur ROS1, VM x86) |
+| `2 .../ROS2 .../1 ... in ROS2.pdf` + `deptrum-ros-driver-humble-aarch64.tar.gz` | 43,2 MB | **ya** — berisi SDK aarch64 + sample |
+| `3 .../Winwods/` (tool + pdf) | 117,5 MB | tidak |
+| `4 Appendix/1 Virtual Machine Image` | 623,2 MB | tidak (VM ROS1 Melodic x86) |
+| `4 Appendix/2 Source Code` (ROS1+ROS2, x86_64 & **aarch64**) | 88,7 MB | sebagian |
+| `4 Appendix/3 Tools` (`deptrum-scope-linux-**aarch64**-v3.6.17`) | 239,8 MB | **ya** — GUI scope arm64 |
+
+Diekstrak selektif (bukan 1 GB, hanya yang perlu) ke
+`~/dokumentasi_lander/kamera_aurora930/`: tiga PDF, tarball scope aarch64,
+paket ROS2 aarch64, dan `sdk_aarch64/` (97 entri `ext/`).
+
+Yang ditemukan di dalamnya (TERVERIFIKASI: dibaca dari arsipnya):
+
+| Berkas | Isi |
+| --- | --- |
+| `.../lib/libdeptrum_stream_aurora900.so.1.1.19` | **SDK stream aarch64**, 16 MB |
+| `include/deptrum/{stream,device,aurora900_series,stream_types,common_types}.h` | header API C |
+| `samples/bin/{hello_deptrum,sample,sample_lite,firmware_upgrade}` | **biner aarch64 siap jalan**, tanpa build |
+| `scripts/99-deptrum-libusb.rules` | `SUBSYSTEM=="usb", ATTRS{idVendor}=="3251", MODE:="0666", TAG+="uaccess", TAG+="udev-acl"` |
+| `scripts/install_dependency.sh` | `libusb-1.0-0-dev`, `libgl1-mesa-dev`, `build-dep glfw`, `libglu1-mesa-dev`, `libxi-dev`, `libudev-dev` |
+
+**Kenapa udev itu wajib (TERUKUR, bukan dugaan):** node kamera sekarang
+`crw-rw-r-- root root` → user hanya bisa membaca, sedangkan komunikasi ke kamera
+butuh menulis. Jadi satu aturan udev itulah pembukanya, dan itu satu-satunya
+langkah yang butuh password.
+
+`~/AMRTestLander/tools/CAMERA_SUDO.txt` ditulis ulang (versi 2) dengan perintah
+**nyata** dari skrip vendor, bukan placeholder lagi, termasuk peringatan supaya
+`sudo apt-get build-dep glfw` tidak dijalankan buta (butuh deb-src).
+
+Jalur tanpa ROS sudah terlihat: biner `hello_deptrum` (aarch64) + SDK, lalu
+pembaca frame via `ctypes`. Yang **belum** terverifikasi: apakah kamera benar-
+benar mengalirkan frame — itu menunggu aturan udev dipasang operator.
 
 ---
 
