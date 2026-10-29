@@ -1053,3 +1053,54 @@ bandingkan dengan tampilan aplikasi pabrik.
 3. **Resolusi lebih tinggi**: SDK hanya menawarkan 320x200/480x300/640x400 untuk
    mode yang ada di unit ini; tidak ada 720p/1080p yang terbukti.
 4. **Daya kamera** tetap TIDAK DIKETAHUI (§15.1).
+
+## 21. Pemantik sesi berikutnya: satu port, satu handle
+
+Ini fundamental, bukan detail. Pertanyaan operator memicunya: *"kalau chassis
+konek, arm-nya mati ya? bisa jalan barengan ga? kalo ada ROS gmn?"*
+
+### 21.1 Bentuk masalahnya
+
+| Fakta | Grade |
+| --- | --- |
+| Board STM32 (chassis + arm + IMU) muncul sebagai **satu** interface CDC-ACM `/dev/ttyACM0` (USB `1a86:55d4`) | TERUKUR |
+| Dashboard membuka port itu **sekali**: satu file handle, satu loop pembaca, satu loop penulis | TERVERIFIKASI (kode) |
+| Kalau dua proses membuka port yang sama, keduanya ikut membaca byte yang sama — balasan untuk chassis bisa habis dibaca proses arm dan sebaliknya | INFERENSI dari sifat tty + desain protokol berbingkai (belum diuji sengaja) |
+| Karena itu ada pagar memegang-port (`other_processes_holding()`), dan `--chassis-live` + `--arm-live` tidak bisa bersamaan | TERVERIFIKASI |
+| Board **mampu** menerima frame motor dan frame servo dari link yang sama — firmware-nya satu pengendali untuk chassis + arm + IMU | INFERENSI (protokol satu port; keduanya sudah teruji terpisah di port yang sama) |
+| Campuran 50 Hz frame motor + frame servo bervariasi pada satu link | **BELUM DIUJI** |
+
+Yang penting dipisahkan: batas ini **bukan** firmware menolak, dan **bukan**
+keterbatasan board. Ini keputusan perangkat lunak kita (satu pemegang port).
+Perintah kita juga tidak "menembus firmware": alurnya Python (Pi) → USB CDC →
+firmware STM32 → driver motor/servo. Firmware tetap yang menggerakkan PWM; kita
+tidak men-flash atau mengubahnya.
+
+### 21.2 Dua jalan, dan mengapa yang murah lebih baik
+
+1. **Satu handle, banyak pengguna (pilihan utama).** Satu adapter membuka port
+   sekali; ada satu thread pembaca, dan chassis + arm sama-sama menitipkan frame
+   lewat adapter itu (dengan lock supaya frame tidak terpotong di tengah).
+   Tanpa ubah firmware. Inilah refactor "share one handle" yang sudah tercatat.
+2. **ROS 2 sebagai batas.** Satu node ROS tetap memegang `/dev/ttyACM0` dan
+   menyebarkan topic (`/cmd_vel`, arm trajectory); node lain bicara ke node itu.
+   Hasilnya sama dengan (1) — ROS tidak menghapus batasan satu port, ia hanya
+   membuat batasnya lebih rapi. Biayanya nyata: ROS 2 belum terpasang di Pi ini
+   (tidak ada `/opt/ros`, tidak ada binary `ros2`), instalasinya besar, dan unit
+   ini sudah dimodifikasi sekolah sehingga paket vendor tidak boleh diasumsikan
+   cocok. Jadi: (2) adalah pilihan arsitektur, bukan jalan pintas untuk (1).
+
+### 21.3 Langkah terkecil yang aman untuk membuka ini
+
+1. Satukan transport: satu adapter memegang port, chassis dan arm menumpang
+   lewat antarmuka yang sama (murni Python, tanpa perangkat).
+2. Uji **tanpa aktuasi**: kecepatan motor `0.0` + perintah servo yang tidak
+   menggerakkan apa pun, lalu ukur (a) frame motor per detik, (b) tulis maksimum,
+   (c) Apakah reply arm masih terbaca utuh saat motor 50 Hz jalan.
+3. Baru kemudian: satu sendi dengan langkah kecil, roda masih diam, dan
+   sebaliknya; catat apakah ada frame yang hilang atau tertunda.
+4. Aturan tetap: tidak ada roda berputar tanpa pengawasan; arm dipegang operator
+   saat gerakan pertama; jeda boot ~2,36 s dihormati sebelum menilai "tidak ada
+   efek".
+
+Grade: masalahnya TERUKUR, solusinya INFERENSI, campurannya **BELUM** dibuktikan.
