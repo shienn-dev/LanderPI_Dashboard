@@ -13,6 +13,11 @@ dependencies = [
 lidar = [
     "pyserial>=3.5",
 ]
+camera = [
+    # Only needed to draw the depth picture in the Camera panel. Without it the
+    # panel still shows every number and says plainly that it cannot draw.
+    "pillow>=10.0",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",

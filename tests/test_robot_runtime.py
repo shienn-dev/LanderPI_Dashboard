@@ -6,8 +6,11 @@ from amr_core.robot.interfaces import ChassisCommand, ConnectionState
 from amr_dashboard.robot_runtime import build_adapters, get_adapters, reset_adapters
 
 
-def test_build_adapters_are_offline_and_safe() -> None:
-    adapters = build_adapters()
+def test_build_adapters_are_offline_and_safe(tmp_path) -> None:
+    # The camera's "no frames" claim is about the *feed file*. On a Pi where the
+    # depth reader happens to be running the default path is live, so point the
+    # adapter at a feed that does not exist rather than depending on the machine.
+    adapters = build_adapters(camera_feed=tmp_path / "belum-jalan.bin")
     assert adapters.chassis.state() is ConnectionState.DISABLED
     assert adapters.arm.state() is ConnectionState.DISABLED
     assert adapters.odometry.state() is ConnectionState.UNAVAILABLE

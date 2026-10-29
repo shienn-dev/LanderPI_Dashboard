@@ -28,6 +28,19 @@ from amr_core.robot.serial_chassis import SerialPort
 DEFAULT_BAUD = 1_000_000
 
 
+def is_pty(port: str) -> bool:
+    """True for a pseudo-terminal path -- which is never the robot's board.
+
+    The holder check below exists because two writers on one USB CDC device
+    interleave motor frames. A PTY is different by construction: its master is
+    held by whoever answers the frames, so the check would always fire on the
+    fake-board harness (``tools/fake_board_pty.py``) whose entire purpose is to
+    answer without touching hardware. Exempting /dev/pts keeps the guard exactly
+    as strict as it was for real devices.
+    """
+    return os.path.realpath(port).startswith("/dev/pts/")
+
+
 def other_processes_holding(port: str) -> list[int]:
     """Return the PIDs that already have ``port`` open.
 
@@ -40,6 +53,8 @@ def other_processes_holding(port: str) -> list[int]:
     processes' file descriptors.
     """
     target = os.path.realpath(port)
+    if is_pty(port):
+        return []
     holders: list[int] = []
     proc = Path("/proc")
     if not proc.is_dir():

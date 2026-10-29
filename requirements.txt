@@ -8,6 +8,12 @@ pyyaml>=6.0
 # reading the hardware. See docs/lidar_integration.md.
 pyserial>=3.5
 
+# Depth camera (Deptrum Aurora 930): only needed to DRAW the picture in the
+# Camera panel. Frames are produced by tools/camera_reader/camera_depth_stream
+# (built against the vendor SDK); without Pillow the panel still shows the
+# numbers and says it cannot draw. See docs/sesi_8.md §11-§13.
+pillow>=10.0
+
 # Development / verification tools.
 pytest>=8.0
 ruff>=0.6

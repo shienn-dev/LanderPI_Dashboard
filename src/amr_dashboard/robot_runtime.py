@@ -19,9 +19,11 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from amr_core.robot.arm import OfflineArmAdapter
 from amr_core.robot.arm_bus import BusServoArmAdapter
+from amr_core.robot.camera import DEFAULT_FEED_PATH as DEFAULT_CAMERA_FEED
 from amr_core.robot.camera import probe_camera
 from amr_core.robot.chassis import OfflineChassisAdapter
 from amr_core.robot.imu import YawIntegrator
@@ -203,6 +205,7 @@ def build_adapters(
     port_factory: PortFactory = open_serial_port,
     settle_s: float = BOOT_WINDOW_S,
     arm_live: bool = False,
+    camera_feed: str | Path | None = None,
 ) -> RobotAdapters:
     """Create a fresh adapter set.
 
@@ -243,7 +246,7 @@ def build_adapters(
         arm=arm,
         arm_live=arm_live,
         odometry=NoOdometrySource(_ODOMETRY_DETAIL),
-        camera=probe_camera(),
+        camera=probe_camera(feed_path=camera_feed or DEFAULT_CAMERA_FEED),
         estop=EStopLatch(),
         guard=guard,
         live=live,

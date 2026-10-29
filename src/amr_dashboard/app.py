@@ -12,6 +12,8 @@ Design notes
   per-page ``ui.timer`` only refreshes the view; it never advances the runtime,
   so adding browsers does not add advancement loops.
 - No motion controls exist in competition mode (DASH-04).
+- The depth preview is a plain HTTP route (``/camera/live.mjpg``), not a widget:
+  a widget would be rebuilt by the refresh tick and the stream would restart.
 - Robot hardware panels (camera, odometry, chassis, arm) use the offline adapters
   in ``amr_dashboard.robot_runtime``; they report honest availability and never
   transmit a command or fabricate data (see ``docs/robot_integration.md``).
@@ -23,6 +25,8 @@ import errno
 import random
 import time
 
+from fastapi import HTTPException
+from fastapi.responses import Response, StreamingResponse
 from nicegui import app, context, ui
 
 from amr_core.lidar.config import LidarConfig
@@ -33,6 +37,8 @@ from amr_core.samples import SAMPLE_MISSIONS, get_sample_mission
 from amr_core.states import RobotState
 from amr_core.vision import sample_detections
 from amr_dashboard import (
+    camera_feed,
+    camera_stream,
     chassis_panel,
     lidar_panel,
     lidar_runtime,
@@ -154,6 +160,11 @@ def _render_structure(
         mission_panel()
         lidar_view()
         robot_view()
+        # The live camera preview is built once, like the panels below: it owns a
+        # long-lived HTTP response (MJPEG), and rebuilding the card every tick
+        # would restart that stream every tick -- the slide show the operator
+        # complained about. Its numbers update themselves on their own timer.
+        robot_panel.camera_live_panel(robot_runtime.get_adapters())
         # The interactive panels are built once and never refreshed: a button
         # that is re-rendered while the pointer is down would swallow the
         # release event, and an input field that is rebuilt every tick would
@@ -571,6 +582,81 @@ def _render_vision_panel() -> None:
                 ui.label(det.display).classes("text-sm font-mono")
 
 
+# --------------------------------------------------------------------------- #
+# Camera preview (plain HTTP, not a NiceGUI widget)
+#
+# A raw route because the browser must keep ONE response open and draw whatever
+# arrives: ``multipart/x-mixed-replace`` is how a video-ish preview is done
+# without JavaScript or a WebSocket, and it is what makes the depth feed look
+# live instead of like a picture that changes once a second. The route only ever
+# reads the seqlock file the C++ reader publishes -- it cannot move the robot.
+# --------------------------------------------------------------------------- #
+
+
+def _checked_source(source: str) -> str:
+    """Reject an unknown feed instead of silently showing a different one."""
+    if source not in camera_stream.SOURCES:
+        allowed = ", ".join(camera_stream.SOURCES)
+        raise HTTPException(
+            status_code=400, detail=f"source tidak dikenal: {source!r} (pilihan: {allowed})"
+        )
+    return source
+
+
+def _checked_palette(palette: str) -> str:
+    """Reject an unknown palette instead of silently drawing something else."""
+    if palette not in camera_feed.PALETTES:
+        allowed = ", ".join(camera_feed.PALETTES)
+        raise HTTPException(
+            status_code=400, detail=f"palette tidak dikenal: {palette!r} (pilihan: {allowed})"
+        )
+    return palette
+
+
+@app.get("/camera/live.mjpg")
+def camera_live_stream(
+    source: str = camera_stream.DEFAULT_SOURCE,
+    palette: str = camera_stream.DEFAULT_PALETTE,
+) -> StreamingResponse:
+    """Pratinjau kamera sebagai MJPEG: satu respons, banyak frame, terus mengalir.
+
+    ``?source=rgb`` (default) = gambar kamera biasa (sensor warna, NV12);
+    ``?source=depth&palette=turbo|grey`` = peta jarak dengan skala palsu. Berhenti
+    sendiri saat tab ditutup (Starlette menutup generator-nya), dan tidak mengirim
+    apa pun ketika pembaca kamera mati -- layar memegang gambar terakhir, sementara
+    angka di panel yang mengatakan keadaan sebenarnya.
+    """
+    _checked_source(source)
+    _checked_palette(palette)
+    if not camera_stream.pillow_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Pillow tidak terpasang: pratinjau tidak bisa digambar. pip install pillow",
+        )
+    return StreamingResponse(
+        camera_stream.mjpeg_chunks(source=source, palette=palette),
+        media_type=f"multipart/x-mixed-replace; boundary={camera_stream.BOUNDARY}",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/camera/frame.jpg")
+def camera_single_frame(
+    source: str = camera_stream.DEFAULT_SOURCE,
+    palette: str = camera_stream.DEFAULT_PALETTE,
+) -> Response:
+    """Satu frame JPEG dari feed (untuk menyimpan bukti/berbagi), 404 kalau basi."""
+    _checked_source(source)
+    _checked_palette(palette)
+    data = camera_stream.snapshot_jpeg(source=source, palette=palette)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Tidak ada frame kamera yang segar. Jalankan ~/camera_depth_live.sh",
+        )
+    return Response(content=data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 def _start_runtime_loop() -> None:
     """Start the single server-side advancement loop (runs without any browser).
 
@@ -706,8 +792,9 @@ def run(
             print("=" * 72)
             print("  ARM LIVE - tombol di panel Arm akan MENGGERAKKAN sendi asli.")
             print(f"  {activation.message}")
-            print("  Satu tekan = satu langkah 10 pulse / 0,8 s, dibatasi limit")
-            print("  terukur. Gripper (servo 10) tidak tersedia: aturan operator.")
+            print("  Geser slider sendi = satu perintah gerak; durasi dihitung dari")
+            print("  jarak / kecepatan (default 150 pulse/s). Slider dibatasi limit")
+            print("  terukur tiap servo. Gripper (servo 10) tidak tersedia: aturan operator.")
             print("=" * 72)
     try:
         ui.run(host=host, port=port, title="AMR LKS Dashboard", reload=reload, show=False)
